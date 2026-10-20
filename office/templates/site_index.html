@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ritual의 문제 모음</title>
+<link rel="stylesheet" href="__GALMURI_CSS__">
+<style>
+:root { --c1:#9337FD; --c3:#FC34CA; --c6:#FC7135; --bg:#14111f; --panel:#201a33; --line:#3b2f5c; --ink:#f3eefe; --muted:#a99cc9; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; padding: 32px 16px; background: var(--bg); color: var(--ink);
+       font-family: "Galmuri11", "Malgun Gothic", sans-serif;
+       background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+       background-size: 32px 32px; }
+main { max-width: 720px; margin: 0 auto; }
+.bar { display: flex; height: 8px; margin-bottom: 20px; }
+.bar span { flex: 1; }
+h1 { font-size: 26px; margin: 0 0 6px; text-shadow: 3px 3px 0 #000; }
+p { color: var(--muted); margin: 0 0 24px; }
+ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+a { display: flex; justify-content: space-between; gap: 12px; padding: 16px; color: var(--ink); text-decoration: none;
+    background: var(--panel); border: 4px solid #000; box-shadow: 4px 4px 0 #000; }
+a:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0 #000; border-color: var(--c3); }
+a small { color: var(--c6); flex: none; }
+.empty { color: var(--muted); }
+footer { margin-top: 28px; text-align: center; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <div class="bar"><span style="background:#9337FD"></span><span style="background:#E036F0"></span><span style="background:#FC34CA"></span><span style="background:#FD389C"></span><span style="background:#FD633E"></span><span style="background:#FC7135"></span></div>
+  <h1>ritual의 문제 모음</h1>
+  <p>공부 사무실에서 만든 문제들. 골라서 풀어봐!</p>
+  <ul>__LIST__</ul>
+  <footer>ritual의 공부 사무실에서 만듦</footer>
+</main>
+</body>
+</html>
