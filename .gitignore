@@ -1,0 +1,7 @@
+output/
+__pycache__/
+.pytest_cache/
+.venv/
+web/logo-pixel.png
+web/icon.ico
+*.log
