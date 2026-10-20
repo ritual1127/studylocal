@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__ · ritual 문제</title>
+<link rel="stylesheet" href="__GALMURI_CSS__">
+<style>
+:root { --c1:#9337FD; --c2:#E036F0; --c3:#FC34CA; --c4:#FD389C; --c5:#FD633E; --c6:#FC7135;
+        --bg:#14111f; --panel:#201a33; --line:#3b2f5c; --ink:#f3eefe; --muted:#a99cc9; --ok:#4ade80; --err:#ff4d6d; }
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { min-height: 100vh; background: var(--bg); color: var(--ink); font-family: "Galmuri11", "Malgun Gothic", sans-serif;
+       background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+       background-size: 32px 32px; background-position: -1px -1px; padding: 24px 16px 48px; }
+main { max-width: 720px; margin: 0 auto; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.logo { height: 30px; image-rendering: pixelated; }
+.logo-text { font-size: 22px; color: var(--c3); }
+.tag { font-size: 12px; color: var(--muted); }
+h1 { font-size: 22px; line-height: 1.4; margin: 0 0 16px; text-shadow: 3px 3px 0 #000; }
+.card { background: var(--panel); border: 4px solid #000; box-shadow: 6px 6px 0 #000; padding: 20px; }
+.progress { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; font-size: 14px; color: var(--muted); }
+.blocks { display: flex; gap: 3px; flex: 1; }
+.blocks span { flex: 1; height: 12px; background: var(--line); }
+.blocks span.done { background: var(--c3); }
+.blocks span.now { background: var(--ink); animation: blink 0.8s steps(2) infinite; }
+@keyframes blink { 50% { background: var(--c1); } }
+.question { font-size: 19px; line-height: 1.6; margin: 0 0 18px; word-break: keep-all; overflow-wrap: anywhere; }
+.kind { display: inline-block; font-size: 12px; padding: 2px 8px; margin-bottom: 10px; background: var(--c1); color: #fff; border: 2px solid #000; }
+.choices { display: grid; gap: 10px; }
+.choices.ox { grid-template-columns: 1fr 1fr; }
+button { font: inherit; color: var(--ink); background: var(--bg); border: 4px solid #000; box-shadow: 4px 4px 0 #000;
+         padding: 12px 14px; text-align: left; cursor: pointer; line-height: 1.5; }
+button:hover:not(:disabled) { transform: translate(-2px, -2px); box-shadow: 6px 6px 0 #000; border-color: var(--c3); }
+button:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: 2px 2px 0 #000; }
+button:disabled { cursor: default; }
+.choices.ox button { text-align: center; font-size: 28px; }
+button .num { color: var(--c5); margin-right: 8px; }
+button.right { background: #12351f; border-color: var(--ok); }
+button.wrong { background: #3d1220; border-color: var(--err); }
+.short { display: flex; gap: 10px; }
+.short input { flex: 1; min-width: 0; font: inherit; font-size: 17px; color: var(--ink); background: var(--bg); border: 4px solid #000; padding: 10px 12px; }
+.short input:focus { outline: none; border-color: var(--c3); }
+.primary { background: var(--c1); color: #fff; text-align: center; }
+.feedback { margin-top: 18px; padding: 14px; border: 4px solid #000; background: var(--bg); line-height: 1.6; }
+.feedback.ok { border-color: var(--ok); } .feedback.no { border-color: var(--err); }
+.feedback b { font-size: 18px; }
+.feedback .ans { color: var(--c6); }
+.feedback .exp { color: var(--muted); margin-top: 6px; }
+.next { display: block; width: 100%; margin-top: 14px; }
+.score { font-size: 48px; text-align: center; margin: 8px 0; text-shadow: 4px 4px 0 var(--c1); }
+.cheer { text-align: center; color: var(--muted); margin: 0 0 18px; }
+.review { list-style: none; padding: 0; margin: 0 0 18px; display: grid; gap: 10px; }
+.review li { background: var(--bg); border: 4px solid #000; padding: 12px; line-height: 1.6; }
+.review .ans { color: var(--c6); }
+.hidden { display: none !important; }
+footer { margin-top: 24px; text-align: center; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <header>__LOGO__<span class="tag">STUDY QUIZ</span></header>
+  <h1>__TITLE__</h1>
+  <section class="card" id="play">
+    <div class="progress"><span id="count"></span><div class="blocks" id="blocks"></div></div>
+    <span class="kind" id="kind"></span>
+    <p class="question" id="question"></p>
+    <div class="choices" id="choices"></div>
+    <form class="short hidden" id="short"><input id="short-input" autocomplete="off" placeholder="정답을 입력해줘"><button class="primary" type="submit">확인</button></form>
+    <div class="feedback hidden" id="feedback"></div>
+    <button class="primary next hidden" id="next" type="button">다음 ▶</button>
+  </section>
+  <section class="card hidden" id="result">
+    <div class="score" id="score"></div>
+    <p class="cheer" id="cheer"></p>
+    <ul class="review" id="review"></ul>
+    <button class="primary next" id="again" type="button">다시 풀기 ↺</button>
+  </section>
+  <footer>ritual의 공부 사무실에서 만듦</footer>
+</main>
+<script id="quiz-data" type="application/json">__QUIZ_JSON__</script>
+<script>
+const quiz = JSON.parse(document.getElementById("quiz-data").textContent);
+const KIND = { mc: "객관식", ox: "OX", short: "단답" };
+const $ = (id) => document.getElementById(id);
+let index = 0, score = 0, wrong = [];
+
+function answerText(q) { return q.kind === "mc" ? q.choices[q.answer] : q.answer; }
+function norm(s) { return String(s).replace(/\s+/g, "").toLowerCase(); }
+
+function show() {
+  const q = quiz.questions[index];
+  $("count").textContent = (index + 1) + " / " + quiz.questions.length;
+  $("blocks").replaceChildren(...quiz.questions.map((_, i) => {
+    const s = document.createElement("span");
+    if (i < index) s.className = "done";
+    if (i === index) s.className = "now";
+    return s;
+  }));
+  $("kind").textContent = KIND[q.kind];
+  $("question").textContent = q.question;
+  $("feedback").className = "feedback hidden";
+  $("next").classList.add("hidden");
+  $("short").classList.toggle("hidden", q.kind !== "short");
+  $("short-input").value = "";
+  $("short-input").disabled = false;
+  const box = $("choices");
+  box.className = "choices" + (q.kind === "ox" ? " ox" : "");
+  const options = q.kind === "mc" ? q.choices : q.kind === "ox" ? ["O", "X"] : [];
+  box.replaceChildren(...options.map((text, i) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    if (q.kind === "mc") {
+      const n = document.createElement("span");
+      n.className = "num";
+      n.textContent = (i + 1) + ".";
+      b.append(n, text);
+    } else {
+      b.textContent = text;
+    }
+    b.onclick = () => grade(q.kind === "mc" ? i === q.answer : text === q.answer, b);
+    return b;
+  }));
+  if (q.kind === "short") $("short-input").focus();
+}
+
+function grade(correct, picked) {
+  const q = quiz.questions[index];
+  const buttons = [...$("choices").children];
+  buttons.forEach((b, i) => {
+    b.disabled = true;
+    const isAnswer = q.kind === "mc" ? i === q.answer : b.textContent === q.answer;
+    if (isAnswer) b.classList.add("right");
+  });
+  if (picked && !correct) picked.classList.add("wrong");
+  $("short-input").disabled = true;
+  if (correct) score++; else wrong.push(q);
+  const fb = $("feedback");
+  fb.className = "feedback " + (correct ? "ok" : "no");
+  fb.replaceChildren();
+  const head = document.createElement("b");
+  head.textContent = correct ? "정답!" : "아쉬워!";
+  const ans = document.createElement("div");
+  ans.className = "ans";
+  ans.textContent = "정답: " + answerText(q);
+  fb.append(head, ans);
+  if (q.explanation) {
+    const exp = document.createElement("div");
+    exp.className = "exp";
+    exp.textContent = q.explanation;
+    fb.append(exp);
+  }
+  $("next").textContent = index + 1 < quiz.questions.length ? "다음 ▶" : "결과 보기 ★";
+  $("next").classList.remove("hidden");
+  $("next").focus();
+}
+
+function finish() {
+  $("play").classList.add("hidden");
+  $("result").classList.remove("hidden");
+  const total = quiz.questions.length;
+  $("score").textContent = score + " / " + total;
+  $("cheer").textContent = score === total ? "완벽해! 다 맞혔어" : score / total >= 0.6 ? "잘했어! 틀린 것만 다시 보자" : "한 번 더 해보자!";
+  $("review").replaceChildren(...wrong.map((q) => {
+    const li = document.createElement("li");
+    const t = document.createElement("div");
+    t.textContent = q.question;
+    const a = document.createElement("div");
+    a.className = "ans";
+    a.textContent = "정답: " + answerText(q) + (q.explanation ? " — " + q.explanation : "");
+    li.append(t, a);
+    return li;
+  }));
+}
+
+$("short").onsubmit = (e) => {
+  e.preventDefault();
+  const q = quiz.questions[index];
+  const value = $("short-input").value;
+  if (!value.trim() || $("short-input").disabled) return;
+  grade(norm(value) === norm(q.answer), null);
+};
+$("next").onclick = () => { index++; index < quiz.questions.length ? show() : finish(); };
+$("again").onclick = () => {
+  index = 0; score = 0; wrong = [];
+  $("result").classList.add("hidden");
+  $("play").classList.remove("hidden");
+  show();
+};
+show();
+</script>
+</body>
+</html>
