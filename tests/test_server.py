@@ -1,0 +1,30 @@
+from fastapi.testclient import TestClient
+from office.server import create_app
+
+def test_command_saves_upload_inside_job(make_office, tmp_path):
+    client = TestClient(create_app(make_office()))
+    r = client.post("/api/command", data={"text": "PDF로"}, files=[("files", ("../../evil.JPG", b"\xff\xd8", "image/jpeg"))])
+    job_id = r.json()["job_id"]
+    assert (tmp_path / "jobs" / job_id / "inputs" / "00.jpg").read_bytes() == b"\xff\xd8"
+    assert not list(tmp_path.rglob("evil*"))
+
+def test_empty_command_rejected(make_office):
+    r = TestClient(create_app(make_office())).post("/api/command", data={"text": "  "})
+    assert r.status_code == 400 and r.json()["error"] == "명령을 입력해줘."
+
+def test_state_lists_staff_and_jobs(make_office):
+    client = TestClient(create_app(make_office()))
+    client.post("/api/command", data={"text": "운수 좋은 날 문제"})
+    s = client.get("/api/state").json()
+    assert set(s["staff"]) == {"manager", "scanner", "librarian", "designer", "examiner", "deployer"}
+    assert s["jobs"][0]["status"] == "queued" and isinstance(s["ollama"], bool) and s["model"]
+
+def test_deploy_unknown_job_is_400(make_office):
+    r = TestClient(create_app(make_office())).post("/api/jobs/nope/deploy")
+    assert r.status_code == 400 and r.json()["error"] == "그런 작업이 없어."
+
+def test_output_files_are_served(make_office, tmp_path):
+    client = TestClient(create_app(make_office()))
+    (tmp_path / "jobs" / "x").mkdir(parents=True)
+    (tmp_path / "jobs" / "x" / "note.pdf").write_bytes(b"%PDF")
+    assert client.get("/files/jobs/x/note.pdf").content == b"%PDF"
