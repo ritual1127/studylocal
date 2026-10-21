@@ -64,9 +64,11 @@ powershell -ExecutionPolicy Bypass -File install_gen.ps1
 ### 그림 · 영상
 
 화가 팀(Krea-2 Turbo, 8단계)이 그림을, 영상감독 팀(Wan2.2 TI2V 5B, 24fps)이 1~5초 영상을 만든다. 한국어로 시키면 실장님이 영어 프롬프트로 다듬어 넘긴다.
+영상은 Krea-2가 첫 장면을 그리고 Wan2.2가 그 그림을 움직인다(글로만 만들 때보다 훨씬 깨끗하다). 첫 장면 그림도 작업 폴더에 남는다.
 그림은 정사각형 1024×1024(세로·가로도 됨) 1~4장, 영상은 832×480(세로·정사각형도 됨). 결과는 카드·대표실에 바로 보이고, 결재가 있어야 완료, 반려하면 의견대로 다시 그린다.
 그래픽 메모리(8GB)를 나눠 쓰려고 그리기 전에 Ollama 모델을 내리고, 다 그리면 ComfyUI 메모리를 비운다. ComfyUI는 처음 시킬 때 켜지고(1~2분) 퇴근하면 같이 꺼진다.
 설정 → 이미지·동영상 AI에서 설치 상태를 보고, [ComfyUI 직접 열기]로 ComfyUI 화면도 쓸 수 있다.
+실측(2026-10-22, OMEN 16 RTX 5060 8GB): 그림 1장 약 30초 · 2장 58초, 실장님에게 시키면 1장 45초 · 세로 2장 66초, 영상 2초 2분 25초, 실장님에게 3초 영상 3분 30초.
 라이선스: Krea-2는 [Krea 2 Community License](https://huggingface.co/krea/Krea-2-Turbo/blob/main/LICENSE.pdf)(상업적으로 쓰기 전에 확인), Wan2.2는 Apache 2.0.
 
 ### 편의 기능
@@ -165,7 +167,7 @@ PC가 꺼져 있으면 알림도 없다. 그래서 윈도우 켤 때 사무실�
 ```powershell
 uv run pytest -q                                              # 단위·API 테스트 (AI 없이, 4초)
 $env:RITUAL_E2E="1"; uv run pytest tests/test_ui.py -q        # 화면 E2E: 설치된 Edge로 클릭·입력·끌어놓기·다운로드·폰 화면
-$env:RITUAL_LIVE="1"; uv run pytest tests/test_live.py -q -s  # 실제 qwen3.5 + 위키로 직원 전부·실장님 도구 실측 (약 3분 30초)
+$env:RITUAL_LIVE="1"; uv run pytest tests/test_live.py -q -s  # 실제 qwen3.5 + 위키 + ComfyUI로 직원 전부·실장님 도구·그림·영상 실측 (약 8분)
 ```
 
 ## 문제 해결

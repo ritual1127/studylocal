@@ -28,6 +28,7 @@ NEEDED = {f"diffusion_models/{IMAGE_UNET}": "이미지 모델(Krea-2 Turbo)", f"
           f"text_encoders/{VIDEO_CLIP}": "동영상 글 이해(umt5)", f"vae/{VIDEO_VAE}": "동영상 VAE"}
 IMAGE_SIZES = {"square": (1024, 1024), "portrait": (832, 1216), "landscape": (1216, 832)}
 VIDEO_SIZES = {"landscape": (832, 480), "portrait": (480, 832), "square": (640, 640)}
+FRAME_SIZES = {"landscape": (1248, 720), "portrait": (720, 1248), "square": (1024, 1024)}  # 영상 첫 장면 (같은 비율, 1.5배)
 FPS = 24
 VIDEO_NEGATIVE = "blurry, low quality, distorted, watermark, text, subtitles, static, still frame, worst quality"
 IMAGE_TIMEOUT, VIDEO_TIMEOUT = 600, 3600
@@ -50,9 +51,9 @@ def krea_workflow(prompt: str, width: int, height: int, seed: int, count: int = 
     }
 
 
-def wan_workflow(prompt: str, width: int, height: int, frames: int, seed: int, steps: int = 20) -> dict:
-    """Wan2.2 TI2V 5B 글→영상 (ComfyUI 공식 템플릿의 연결)."""
-    return {
+def wan_workflow(prompt: str, width: int, height: int, frames: int, seed: int, steps: int = 20, start: str = "") -> dict:
+    """Wan2.2 TI2V 5B (ComfyUI 공식 템플릿의 연결). start = ComfyUI output 폴더의 첫 장면 그림 → 그 그림을 움직인다."""
+    graph = {
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": VIDEO_UNET, "weight_dtype": "default"}},
         "2": {"class_type": "ModelSamplingSD3", "inputs": {"model": ["1", 0], "shift": 8.0}},
         "3": {"class_type": "CLIPLoader", "inputs": {"clip_name": VIDEO_CLIP, "type": "wan", "device": "default"}},
@@ -69,6 +70,10 @@ def wan_workflow(prompt: str, width: int, height: int, frames: int, seed: int, s
         "11": {"class_type": "SaveVideo", "inputs": {"video": ["10", 0], "filename_prefix": "rab_video", "format": "auto",
                                                      "format.codec": "auto"}},
     }
+    if start:
+        graph["12"] = {"class_type": "LoadImageOutput", "inputs": {"image": f"{start} [output]"}}
+        graph["7"]["inputs"]["start_image"] = ["12", 0]
+    return graph
 
 
 def http(method: str, path: str, body=None):
@@ -192,6 +197,10 @@ class Comfy:
         return self.run(krea_workflow(prompt, width, height, random.randrange(2**31), max(1, min(4, count))), out_dir, check)
 
     def video(self, prompt: str, out_dir: Path, check, seconds: int = 3, shape: str = "landscape") -> list[Path]:
-        width, height = VIDEO_SIZES.get(shape, VIDEO_SIZES["landscape"])
+        """[영상, 첫 장면]. Krea-2가 첫 장면을 그리고 Wan2.2가 움직인다 (글→영상만 하면 뭉개지고 과하게 날카로움)."""
+        shape = shape if shape in VIDEO_SIZES else "landscape"
+        width, height = VIDEO_SIZES[shape]
+        first = self.run(krea_workflow(prompt, *FRAME_SIZES[shape], random.randrange(2**31)), out_dir, check)[0]
         frames = max(1, min(5, seconds)) * FPS + 1
-        return self.run(wan_workflow(prompt, width, height, frames, random.randrange(2**31)), out_dir, check, VIDEO_TIMEOUT)
+        graph = wan_workflow(prompt, width, height, frames, random.randrange(2**31), start=first.name)
+        return [*self.run(graph, out_dir, check, VIDEO_TIMEOUT), first]

@@ -159,3 +159,30 @@ def test_rejected_prompt_explains_why(tmp_path, monkeypatch):
             media.http("POST", "/prompt", {"prompt": {}})
     finally:
         server.shutdown()
+
+
+def test_video_animates_a_krea_first_frame(tmp_path):
+    """글→영상보다 깨끗하게: Krea-2가 첫 장면을 그리고 Wan2.2가 그 그림을 움직인다."""
+    class Two(FakeHTTP):
+        def __init__(self):
+            super().__init__({}, polls=1)
+            self.graphs = []
+
+        def __call__(self, method, path, body=None):
+            if path == "/prompt":
+                self.graphs.append(body["prompt"])
+                return {"prompt_id": f"p{len(self.graphs)}"}
+            if path.startswith("/history/"):
+                pid = path.rsplit("/", 1)[1]
+                item = {"filename": "rab_image_00007_.png"} if pid == "p1" else {"filename": "rab_video_00003_.mp4"}
+                return {pid: {"outputs": {"9": {"images": [item]}}, "status": {"status_str": "success"}}}
+            return super().__call__(method, path, body)
+    http = Two()
+    paths = make(tmp_path, http).video("waves", tmp_path / "job", check=lambda: None, seconds=2, shape="portrait")
+    first, second = http.graphs
+    assert next(n for n in first.values() if n["class_type"] == "EmptyLatentImage")["inputs"]["width"] == 720  # 세로 첫 장면
+    load = next(n for n in second.values() if n["class_type"] == "LoadImageOutput")
+    assert load["inputs"]["image"] == "rab_image_00007_.png [output]"
+    latent = next(n for n in second.values() if n["class_type"] == "Wan22ImageToVideoLatent")["inputs"]
+    assert second[latent["start_image"][0]] is load and (latent["width"], latent["height"], latent["length"]) == (480, 832, 49)
+    assert [p.name for p in paths] == ["rab_video_00003_.mp4", "rab_image_00007_.png"]  # 영상이 먼저
