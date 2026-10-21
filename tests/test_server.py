@@ -147,7 +147,7 @@ def test_startup_toggle(make_office, monkeypatch):
     assert c.post("/api/startup", json={"on": "yes"}).status_code == 400
 
 
-# ---- 편의 기능 · 히스토리 · 초기화 · rab 권한 ----
+# ---- 편의 기능 · 히스토리 · 초기화 · 실장님 권한 ----
 def test_job_buttons_cancel_star_rename_zip(make_office):
     office = make_office()
     c = client_for(office)

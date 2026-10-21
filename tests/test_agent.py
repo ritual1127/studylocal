@@ -46,7 +46,7 @@ def test_goodnight_goes_to_phone(make_agent_office):
     script = Script(call("notify", to="phone", message="굿나잇"), say("대표님, 폰으로 '굿나잇' 보냈습니다."))
     office = make_agent_office(script)
     job = run(office, "내 폰으로 굿나잇이라고 보내")
-    assert office.notifier.to == [("phone", "rab", "굿나잇")]
+    assert office.notifier.to == [("phone", "실장님", "굿나잇")]
     assert job.status == "done" and job.reply == "대표님, 폰으로 '굿나잇' 보냈습니다." and job.trace
     assert {"notify", "find_files", "bring_file", "do_work", "status"} <= set(script.tool_names)
     assert script.seen[0][0]["role"] == "system" and "ritual's rab" in script.seen[0][0]["content"]

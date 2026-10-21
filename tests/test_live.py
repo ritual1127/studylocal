@@ -47,7 +47,7 @@ def test_phase2_office_live(tmp_path):
             return []
 
     from office.plan import route
-    # 실장 라우터 + 직원 파이프라인 실측 (rab 에이전트는 test_rab_agent_live)
+    # 실장 라우터 + 직원 파이프라인 실측 (실장님 에이전트는 test_rab_agent_live)
     office = Office(tmp_path / "out", route=route, planner=Planner(tmp_path / "planner.json"), notifier=Quiet())
     shot = tmp_path / "handout.png"
     browser = next(p for p in BROWSERS if p.exists())
@@ -98,7 +98,7 @@ def test_phase2_office_live(tmp_path):
 
 
 def test_rab_agent_live(tmp_path):
-    """실제 qwen3.5로 rab: 파일 찾아 가져오기 · 폰 메시지 · 오늘 현황 · 팀 지정. 알림은 가짜, 폴더는 임시."""
+    """실제 qwen3.5로 실장님: 파일 찾아 가져오기 · 폰 메시지 · 오늘 현황 · 팀 지정. 알림은 가짜, 폴더는 임시."""
     from office.jobs import Office
     from office.planner import Planner
     from office.tools import Files
@@ -129,7 +129,7 @@ def test_rab_agent_live(tmp_path):
         t0 = time.perf_counter()
         office.run_next()
         job = office.jobs[job_id]
-        print(f"\n[rab 실측] {text} → {job.status} {time.perf_counter() - t0:.0f}초 · 도구 {job.trace} · 답: {job.reply[:80]}")
+        print(f"\n[실장님 실측] {text} → {job.status} {time.perf_counter() - t0:.0f}초 · 도구 {job.trace} · 답: {job.reply[:80]}")
         return job
 
     brought = ask("바탕화면에서 세포 정리 프린트 찾아서 가져와")

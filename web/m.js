@@ -54,7 +54,7 @@ function card(j) {
   return h("article", { class: `card ${j.status}` },
     h("header", {}, h("span", { class: "no" }, no(j)), h("b", {}, title(j)), h("span", { class: `badge ${j.status}` }, BADGE[j.status] ?? j.status)),
     h("p", { class: "muted" }, [j.created, j.seconds ? `${j.seconds}초` : "", (j.names ?? []).join(", ")].filter(Boolean).join(" · ")),
-    j.reply && h("p", {}, h("b", { class: "boss" }, "rab "), j.reply),
+    j.reply && h("p", {}, h("b", { class: "boss" }, "실장님 "), j.reply),
     j.error && h("p", { class: "err" }, j.error),
     j.answer && h("details", { class: "answer", open: j.answer.length < 300 }, h("summary", {}, "선생님 답변"), h("p", {}, rich(j.answer))),
     j.status === "done" && j.last && h("p", { class: "stamp" }, j.last.action === "auto" ? "자동 승인" : "대표 승인"),
@@ -168,7 +168,7 @@ $("#bar").addEventListener("submit", async (e) => {
     ref = null;
     chips();
     $("#err").textContent = "";
-    toast("rab에게 맡겼어요! 다 되면 알림 갈게요", "ok");
+    toast("실장님께 맡겼어요! 다 되면 알림 갈게요", "ok");
     poll(false);
   } catch (err) {
     $("#err").textContent = err instanceof TypeError ? "PC 사무실에 못 보냈어." : err.message;

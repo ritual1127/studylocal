@@ -107,7 +107,7 @@ function mention(role) {
   box.value = role === "manager" ? rest : `@${NAMES[role]} ${rest}`;
   box.focus();
   box.setSelectionRange(box.value.length, box.value.length);
-  toast(role === "manager" ? "rab에게 시킬 일을 적어 주세요" : `${NAMES[role]} 팀에 시킬 일을 적어 주세요`);
+  toast(role === "manager" ? "실장님께 시킬 일을 적어 주세요" : `${NAMES[role]} 팀에 시킬 일을 적어 주세요`);
 }
 
 function editAgain(job) {
@@ -318,7 +318,7 @@ $("#bar").addEventListener("submit", async (e) => {
     ref = null;
     renderChips();
     showError("");
-    toast("rab에게 맡겼어요!", "ok");
+    toast("실장님께 맡겼어요!", "ok");
     poll(false);
   } catch (err) {
     showError(err instanceof TypeError ? "사무실 서버에 못 보냈어." : err.message);

@@ -16,23 +16,23 @@ from office.plan import OUTPUTS, STAFF_STEPS, normalize_plan
 MAX_TURNS = 8
 MAX_CALLS = 4  # 한 번에 부르는 도구 수
 RESULT_CHARS = 3000
-NAMES = {"manager": "rab", "secretary": "비서", "deployer": "배포담당", "scanner": "스캐너", "librarian": "사서",
+NAMES = {"manager": "실장님", "secretary": "비서", "deployer": "배포담당", "scanner": "스캐너", "librarian": "사서",
          "researcher": "조사원", "analyst": "분석가", "designer": "디자이너", "examiner": "출제위원", "cards": "암기담당",
          "mapper": "정리왕", "tutor": "선생님", "translator": "번역가", "coach": "코치"}
-# 열기로 실행되면 프로그램을 돌리는 것과 같은 파일들 (rab은 열지 않는다)
+# 열기로 실행되면 프로그램을 돌리는 것과 같은 파일들 (실장님은 열지 않는다)
 RUNNABLE = {".exe", ".bat", ".cmd", ".com", ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msi", ".msp",
             ".scr", ".pif", ".lnk", ".url", ".reg", ".hta", ".cpl", ".jar", ".py", ".pyw", ".sh", ".appref-ms"}
 APPS = {"메모장": "notepad", "notepad": "notepad", "계산기": "calc", "calculator": "calc", "그림판": "mspaint",
         "탐색기": "explorer", "파일 탐색기": "explorer", "설정": "ms-settings:", "작업 관리자": "taskmgr"}
 
-RAB_SYSTEM = """너는 ritual's rab, 대표(ritual)의 AI 비서다. 아이언맨의 자비스처럼 침착하고 정확하게, 시키는 일을 도구로 직접 실행한다.
+RAB_SYSTEM = """너는 '실장님', 대표(ritual)의 AI 비서다 (이 앱 이름은 ritual's rab). 아이언맨의 자비스처럼 침착하고 정확하게, 시키는 일을 도구로 직접 실행한다.
 - 말로만 대답하지 말고 도구로 실제로 한다. 메시지 보내기(notify), 나중에 알리기(remind), 일정(add_schedule), 할 일 체크, 공부모드,
   파일 찾기·가져오기·열기, 새 파일 쓰기, 결재·중단(job_action), 설정 바꾸기 모두 도구가 있다.
 - "내 폰으로 ○○ 보내"처럼 보낼 말이 요청에 있으면 묻지 말고 바로 notify로 그 말을 보낸다.
 - 파일은 find_files로 찾아 본 뒤 결과의 경로를 그대로 쓴다. 경로를 지어내지 않는다. 폴더 이름은 바탕화면·문서·다운로드처럼 써도 된다.
 - 노트·문제·암기카드·마인드맵·분석·번역·질문 답변 같은 결과물은 do_work로 직원 팀에게 맡긴다 (첨부 파일·가져온 파일은 자동으로 쓴다).
 - 오늘 일정·할 일·결재 현황을 물으면 status로 확인하고 사실만 말한다. 모르는 건 지어내지 않는다.
-- 지우기·옮기기·이름 바꾸기·덮어쓰기·명령 실행은 rab이 할 수 없다. 그럴 땐 할 수 없다고 말하고 open_thing으로 그 폴더를 열어 준다.
+- 지우기·옮기기·이름 바꾸기·덮어쓰기·명령 실행은 실장님이 할 수 없다. 그럴 땐 할 수 없다고 말하고 open_thing으로 그 폴더를 열어 준다.
 - 대표님이 알려 준 자기 정보·습관·부탁("앞으로 ~해줘", "기억해")은 remember로 기억한다. "잊어"라고 하면 forget.
   아래 '기억하는 것'과 앞선 대화를 늘 참고해서, 같은 걸 다시 묻지 않는다.
 - 일이 끝나면 대표님께 존댓말로 한두 문장 보고한다 ("대표님, …했습니다")."""
@@ -125,7 +125,7 @@ def open_thing(office, job, args):
         return {"opened": target}
     path = office.files.existing(target)
     if path.is_file() and path.suffix.lower() in RUNNABLE:
-        raise OfficeError("프로그램·스크립트 파일은 rab이 열지 않아요. 대표님이 직접 열어 주세요.")
+        raise OfficeError("프로그램·스크립트 파일은 실장님이 열지 않아요. 대표님이 직접 열어 주세요.")
     office.opener(str(path))
     return {"opened": str(path)}
 
@@ -186,7 +186,7 @@ def notify(office, job, args):
     if not message:
         raise OfficeError("보낼 말이 없어요.")
     to = args.get("to") if args.get("to") in ("phone", "pc") else None
-    errors = office.notifier.send("rab", message, only=to)
+    errors = office.notifier.send("실장님", message, only=to)
     if errors:
         raise OfficeError(" / ".join(errors))
     return {"sent": {"phone": "폰", "pc": "PC"}.get(to, "PC·폰"), "message": message}
@@ -351,7 +351,7 @@ class Agent:
         except OfficeError as e:
             self.office.trace(job, f"{t['label']} ✗ {e}")
             return {"error": str(e)}
-        except Exception as e:  # 도구 하나가 터져도 rab은 대표에게 보고할 수 있게
+        except Exception as e:  # 도구 하나가 터져도 실장님은 대표에게 보고할 수 있게
             traceback.print_exc()
             self.office.trace(job, f"{t['label']} ✗ 오류")
             return {"error": f"도구 오류 ({type(e).__name__})"}

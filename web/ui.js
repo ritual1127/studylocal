@@ -111,7 +111,7 @@ export const TEAMS = [
   { id: "learn", name: "학습지원팀", color: "var(--sky)", roles: ["tutor", "translator", "coach"], extra: "plant" },
 ];
 export const NAMES = {
-  manager: "rab", secretary: "비서", deployer: "배포담당", scanner: "스캐너", librarian: "사서",
+  manager: "실장님", secretary: "비서", deployer: "배포담당", scanner: "스캐너", librarian: "사서",
   researcher: "조사원", analyst: "분석가", designer: "디자이너", examiner: "출제위원", cards: "암기담당",
   mapper: "정리왕", tutor: "선생님", translator: "번역가", coach: "코치",
 };

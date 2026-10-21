@@ -139,8 +139,8 @@ function jobCard(job, ctx) {
     stampOf(job),
     h("p", { class: "muted" }, meta, job.assignee && h("span", { class: "chip-team" }, `${NAMES[job.assignee]} 팀`)),
     h("p", { class: "muted cmd" }, `지시: ${job.text}`),
-    job.reply && h("p", { class: "reply" }, h("b", { style: "color: var(--c1)" }, "rab "), job.reply),
-    job.trace?.length && h("details", { class: "trace" }, h("summary", {}, `rab 작업 기록 ${job.trace.length}개`),
+    job.reply && h("p", { class: "reply" }, h("b", { style: "color: var(--c1)" }, "실장님 "), job.reply),
+    job.trace?.length && h("details", { class: "trace" }, h("summary", {}, `실장님 작업 기록 ${job.trace.length}개`),
       h("ol", {}, job.trace.map((t) => h("li", {}, t)))),
     job.warnings?.length && h("ul", { class: "warn" }, job.warnings.map((w) => h("li", {}, w))),
     job.error && h("p", { class: "err" }, job.error),
@@ -331,7 +331,7 @@ function vaultView(ctx) {
     const q = search.value.trim().toLowerCase();
     const jobs = s.jobs.filter((j) => match(j) && (!q || `${j.title} ${j.text} ${(j.names ?? []).join(" ")}`.toLowerCase().includes(q)));
     keyed(list, jobs, (j) => j.id, (j) => cardSig(j, ctx), (j) => jobCard(j, ctx),
-      q || filter !== "all" ? "맞는 작업이 없어요" : "아직 결과가 없어요. 아래 지시 칸에 rab에게 시켜 보세요!");
+      q || filter !== "all" ? "맞는 작업이 없어요" : "아직 결과가 없어요. 아래 지시 칸에 실장님께 시켜 보세요!");
   }
   const el = h("div", { class: "view" }, h("div", { class: "vault-tools" }, modes, search, chips), summary, list, more);
   return {
@@ -373,7 +373,7 @@ export function teamPanel(role, ctx) {
       h("span", {}, jobTitle(j)), h("span", { class: `badge ${j.status}` }, BADGE[j.status] ?? j.status)))
       : [h("li", { class: "empty" }, "아직 이 팀 작업이 없어요")]),
     h("div", { class: "actions" }, h("button", { class: "btn", type: "button", "data-first": "", onclick: () => ctx.mention(role) },
-      role === "manager" ? "rab에게 시키기" : `${NAMES[role]} 팀에 시키기`)));
+      role === "manager" ? "실장님께 시키기" : `${NAMES[role]} 팀에 시키기`)));
 }
 
 // ---- 오늘 ----
@@ -633,11 +633,12 @@ function settingsView(ctx) {
   let remote = null;
   let boot = null;
   let perms = null;
+  let facts = null;
 
   async function load() {
     try {
-      [data, remote, boot, perms] = await Promise.all([getJSON("/api/settings"), getJSON("/api/remote"), getJSON("/api/startup"),
-        getJSON("/api/permissions")]);
+      [data, remote, boot, perms, { facts }] = await Promise.all([getJSON("/api/settings"), getJSON("/api/remote"),
+        getJSON("/api/startup"), getJSON("/api/permissions"), getJSON("/api/memory")]);
       draw();
     } catch {
       box.replaceChildren(h("p", { class: "err" }, "설정을 못 불러왔어."));
@@ -715,9 +716,9 @@ function settingsView(ctx) {
                          OneDrive: "OneDrive" };
   function permsBox() {
     const extra = h("input", { class: "input grow", placeholder: "더 허용할 폴더 경로 (예: D:\\학교 자료)", "aria-label": "허용할 폴더 경로" });
-    return section("rab 권한",
-      h("p", {}, "rab은 아래 폴더 안에서만 파일을 찾고·읽고·가져오고·새로 만들어요. AppData·.ssh·시스템 폴더는 늘 막혀 있어요."),
-      h("p", { class: "muted" }, "지우기·옮기기·이름 바꾸기·덮어쓰기·명령 실행은 rab이 못 해요. 시키면 그 폴더를 열어 드려요 (대표님이 직접)."),
+    return section("실장님 권한",
+      h("p", {}, "실장님은 아래 폴더 안에서만 파일을 찾고·읽고·가져오고·새로 만들어요. AppData·.ssh·시스템 폴더는 늘 막혀 있어요."),
+      h("p", { class: "muted" }, "지우기·옮기기·이름 바꾸기·덮어쓰기·명령 실행은 실장님이 못 해요. 시키면 그 폴더를 열어 드려요 (대표님이 직접)."),
       toggle("파일 읽기 (찾기·폴더 보기·내용 읽기)", perms.read, (v) => setPerms({ read: v }, v ? "읽기 권한 켰어요" : "읽기 권한 껐어요")),
       toggle("파일 만들기·가져오기 (새 파일 쓰기·복사·새 폴더·사무실로 가져오기)", perms.write,
         (v) => setPerms({ write: v }, v ? "만들기 권한 켰어요" : "만들기 권한 껐어요")),
@@ -730,6 +731,21 @@ function settingsView(ctx) {
           onclick: () => setPerms({ extra: perms.extra.filter((p) => p !== path) }, "폴더를 뺐어요") }, "✕")))),
       h("form", { class: "row-form", onsubmit: (e) => { e.preventDefault(); if (extra.value.trim()) setPerms({ extra: [...perms.extra, extra.value.trim()] }, "폴더를 허용했어요"); } },
         extra, h("button", { class: "btn alt", type: "submit" }, "폴더 추가")));
+  }
+
+  function memoryBox() {
+    const input = h("input", { class: "input grow", maxlength: 300, "aria-label": "실장님이 기억할 것",
+      placeholder: "실장님이 기억할 것 (예: 수학 학원은 매주 화요일 6시)" });
+    return section("실장님 기억",
+      h("p", { class: "muted" }, "대화하면서 실장님이 기억한 것이에요. 매번 지시할 때 참고하고, 최근 대화 6번도 함께 봐요. 말로 \"기억해\" · \"잊어\"라고 해도 돼요."),
+      h("ul", { class: "list" }, facts.length ? facts.map((f) => h("li", { class: "event" }, h("small", { class: "time" }, f.created.slice(5)),
+        h("span", {}, f.text), h("button", { class: "x", type: "button", "aria-label": `${f.text} 잊기`,
+          onclick: () => act(`/api/memory/${f.id}/delete`, undefined, "잊었어요").then(load) }, "✕")))
+        : [h("li", { class: "empty" }, "아직 기억한 게 없어요")]),
+      h("form", { class: "row-form", onsubmit: async (e) => {
+        e.preventDefault();
+        if (input.value.trim() && await act("/api/memory", { text: input.value }, "기억했어요")) load();
+      } }, input, h("button", { class: "btn alt", type: "submit" }, "기억하기")));
   }
 
   function resetBox() {
@@ -790,6 +806,7 @@ function settingsView(ctx) {
         }, "테스트 알림"))),
       s.phone && phoneBox(s),
       remote && remoteBox(),
+      facts && memoryBox(),
       perms && permsBox(),
       section("최근 알림", h("ul", { class: "list" }, data.history.length ? data.history.map((n) => h("li", {},
         h("small", { class: "muted" }, n.time), " ", h("b", {}, n.title), " ", n.body,

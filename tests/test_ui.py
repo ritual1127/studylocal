@@ -64,7 +64,7 @@ def command(page, text, files=()):
         page.set_input_files("#pick", list(files))
     page.fill("#text", text)
     page.keyboard.press("Enter")
-    expect(page.locator(".toast", has_text="rab에게 맡겼어요")).to_be_visible()
+    expect(page.locator(".toast", has_text="실장님께 맡겼어요")).to_be_visible()
 
 
 def test_welcome_shows_once_and_first_layout_is_office_and_vault(page):
@@ -279,6 +279,18 @@ def test_quick_chips_and_command_recall(page):
     expect(page.locator("#text")).to_have_value("내 폰으로 굿나잇라고 보내")
     page.fill("#text", "안녕")
     page.keyboard.press("Enter")
-    expect(page.locator(".toast", has_text="rab에게 맡겼어요")).to_be_visible()
+    expect(page.locator(".toast", has_text="실장님께 맡겼어요")).to_be_visible()
     page.locator("#text").press("ArrowUp")
     expect(page.locator("#text")).to_have_value("안녕")
+
+
+def test_memory_section_add_and_forget(page):
+    from playwright.sync_api import expect
+    tab(page, 1, "설정")
+    box = pane(page, 1).locator("section", has_text="실장님 기억")
+    box.locator("input").fill("E2E 기억: 영어는 아침에")
+    box.get_by_role("button", name="기억하기").click()
+    item = box.locator("li", has_text="E2E 기억: 영어는 아침에")
+    expect(item).to_be_visible()
+    item.get_by_role("button", name=re.compile("잊기")).click()
+    expect(box.locator("li", has_text="E2E 기억")).to_have_count(0)

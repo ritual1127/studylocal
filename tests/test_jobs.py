@@ -33,7 +33,7 @@ def test_scan_to_pdf_job_waits_for_approval(make_office):
     assert job["results"]["pdf"] == f"/files/jobs/{job_id}/note.pdf"
     assert (job_dir / "source.txt").read_text(encoding="utf-8") == "# 세포"
     assert (job_dir / "job.json").exists() and job["seconds"] >= 0
-    assert snap["staff"]["designer"]["state"] == "done" and snap["staff"]["manager"]["name"] == "rab"
+    assert snap["staff"]["designer"]["state"] == "done" and snap["staff"]["manager"]["name"] == "실장님"
     assert any(line.startswith("[스캐너]") for line in job["log"])
     assert len(snap["staff"]) == 14
 

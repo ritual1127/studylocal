@@ -1,6 +1,6 @@
-"""rab의 손발: 대표 PC의 허용 폴더 안에서만 파일을 찾고·읽고·가져오고·새로 만든다.
+"""실장님의 손발: 대표 PC의 허용 폴더 안에서만 파일을 찾고·읽고·가져오고·새로 만든다.
 
-허용 폴더 밖, AppData·.ssh 같은 곳은 늘 막는다. 지우기·옮기기·덮어쓰기·명령 실행은 rab에게 없다 (대표가 직접).
+허용 폴더 밖, AppData·.ssh 같은 곳은 늘 막는다. 지우기·옮기기·덮어쓰기·명령 실행은 실장님께 없다 (대표가 직접).
 """
 import datetime as dt
 import json
@@ -87,7 +87,7 @@ class Files:
 
     def need(self, perm: str) -> None:
         if not self.perms.get(perm):
-            raise OfficeError(f"'{PERM_NAMES[perm]}' 권한이 꺼져 있어요. 설정 → rab 권한에서 켜 주세요.")
+            raise OfficeError(f"'{PERM_NAMES[perm]}' 권한이 꺼져 있어요. 설정 → 실장님 권한에서 켜 주세요.")
 
     def allowed(self, path: Path) -> bool:
         path = Path(path).resolve()
@@ -112,7 +112,7 @@ class Files:
             path = (self.roots[0] if self.roots else Path.home()) / raw
         path = path.resolve()
         if not self.allowed(path):
-            raise OfficeError(f"'{raw}'은(는) rab이 건드릴 수 있는 폴더 밖이에요. 설정 → rab 권한에서 폴더를 추가해 주세요.")
+            raise OfficeError(f"'{raw}'은(는) 실장님이 건드릴 수 있는 폴더 밖이에요. 설정 → 실장님 권한에서 폴더를 추가해 주세요.")
         return path
 
     def existing(self, text: str) -> Path:
@@ -206,7 +206,7 @@ class Files:
         return path
 
 def load_permissions(path: Path) -> dict:
-    """설정 → rab 권한. 기본: 알려진 폴더 전부, 읽기·만들기 켬."""
+    """설정 → 실장님 권한. 기본: 알려진 폴더 전부, 읽기·만들기 켬."""
     try:
         saved = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):

@@ -36,7 +36,7 @@ from office.tools import files_from, load_permissions
 from office.translator import make_translation_page
 from office.tutor import answer_question
 
-ROLES = {"manager": "rab", "secretary": "비서", "deployer": "배포담당",
+ROLES = {"manager": "실장님", "secretary": "비서", "deployer": "배포담당",
          "scanner": "스캐너", "librarian": "사서", "researcher": "조사원", "analyst": "분석가",
          "designer": "디자이너", "examiner": "출제위원", "cards": "암기담당", "mapper": "정리왕",
          "tutor": "선생님", "translator": "번역가", "coach": "코치"}
@@ -111,7 +111,7 @@ class Job:
     names: list[str] = field(default_factory=list)      # 올린 파일의 원래 이름 (보여주기만, 경로엔 안 씀)
     no: int = 0                                         # 작업 번호 (1부터, 1단계 작업은 0)
     assignee: str = ""                                  # @이름으로 지정한 직원
-    trace: list[str] = field(default_factory=list)      # rab이 쓴 도구 기록
+    trace: list[str] = field(default_factory=list)      # 실장님이 쓴 도구 기록
     star: bool = False                                  # 즐겨찾기
 
     @property
@@ -139,7 +139,7 @@ class Office:
         self.site_dir = self.root / "ritual-quiz"
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         self.route, self.deploy = route or plan_route, deploy
-        self.agent = None if route is not None and agent_llm is None else Agent(self, agent_llm)  # 실장 자리 = rab 에이전트
+        self.agent = None if route is not None and agent_llm is None else Agent(self, agent_llm)  # 실장 자리 = 실장님 에이전트
         self.opener = opener or open_on_pc
         self.steps = steps or {"scan": scan, "literature": fetch_literature, "research": research,
                                "analysis": make_analysis_page, "pdf": make_pdf, "quiz": make_quiz_page,
@@ -540,7 +540,7 @@ class Office:
         started = self._begin(job, "running")
         try:
             self._set(job, "manager", "working", "명령 읽는 중")
-            if self.agent:  # rab: 도구를 골라 쓰는 에이전트
+            if self.agent:  # 실장님: 도구를 골라 쓰는 에이전트
                 text = split_mention(job.text)[1]
                 reply = self.agent.run(job, text)
                 self._update(job, reply=reply, title=job.title or text[:30])
@@ -573,10 +573,10 @@ class Office:
         with self.lock:
             for r in self.staff:
                 self.staff[r] = {"name": ROLES[r], "state": "idle", "say": ""}
-            job.log.append("[rab] 대표님 지시로 중단했습니다.")
+            job.log.append("[실장님] 대표님 지시로 중단했습니다.")
 
     def run_plan(self, job: Job, plan) -> None:
-        """직원 팀 일: 자료 모으기 → 일정·계획·공부모드 → 결과물. rab의 do_work도 이걸 쓴다."""
+        """직원 팀 일: 자료 모으기 → 일정·계획·공부모드 → 결과물. 실장님의 do_work도 이걸 쓴다."""
         job_dir = self.jobs_dir / job.id
         outputs = [s for s in plan.steps if s in OUTPUTS]
         self._update(job, steps=[s for s in STEPS if s in set(job.steps) | set(plan.steps)], title=job.title or plan.title,
@@ -637,7 +637,7 @@ class Office:
             self._set(job, "coach", "done", f"{running['minutes']}분 공부모드 시작! 끝나면 알려줄게")
         self._make_outputs(job, material, only=outputs)
 
-    # ---- rab 도구가 쓰는 사무실 기능 ----
+    # ---- 실장님 도구가 쓰는 사무실 기능 ----
     def say(self, job: Job, message: str) -> None:
         self._set(job, "manager", "working", message)
 

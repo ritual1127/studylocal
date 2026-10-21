@@ -62,7 +62,7 @@ def chat(system: str, user: str, *, images: list[bytes] | None = None,
 
 
 def chat_tools(messages: list[dict], tools: list[dict], temperature: float = 0) -> dict:
-    """도구 호출 대화 한 번 (rab 에이전트). 돌려주는 건 assistant 메시지 (content, tool_calls)."""
+    """도구 호출 대화 한 번 (실장님 에이전트). 돌려주는 건 assistant 메시지 (content, tool_calls)."""
     payload = {"model": model(), "stream": False, "think": False, "keep_alive": KEEP_ALIVE,
                "options": {**_options(), "temperature": temperature}, "messages": messages, "tools": tools}
     name = payload["model"]
