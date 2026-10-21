@@ -6,9 +6,12 @@ from PIL import Image, ImageOps
 
 from office import Material, OfficeError, quiet
 from office.config import MAX_IMAGE_SIDE, MAX_INPUT_CHARS, MAX_PAGES
+from office.docs import SUPPORTED, ZIP_DOCS, read_hwp, read_text, read_zip_doc
 from office.llm import chat
 
-IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
+IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
+MEDIA_EXT = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".mp4", ".mov", ".avi", ".mkv", ".wmv", ".webm"}
+OLD_OFFICE = {".doc", ".ppt", ".xls"}
 TEXT_LAYER_MIN = 50
 
 OCR_SYSTEM = """너는 '공부 사무실'의 스캐너 직원이다. 사진 속 학교 프린트의 글자를 빠짐없이 그대로 마크다운으로 옮긴다.
@@ -41,7 +44,36 @@ def load_pages(path: Path) -> list[bytes | str]:
             return pages
         finally:
             pdf.close()
-    raise OfficeError("JPG·PNG·WEBP·PDF만 읽을 수 있어. 아이폰 사진은 설정 > 카메라 > 포맷 > '높은 호환성'으로 찍어줘.")
+    if suffix in (".heic", ".heif"):
+        raise OfficeError("아이폰 HEIC 사진은 못 읽어. 설정 > 카메라 > 포맷 > '높은 호환성'으로 찍거나 JPG로 바꿔서 올려줘.")
+    if suffix in MEDIA_EXT:
+        raise OfficeError("소리·영상 파일은 아직 못 읽어. 내용을 글·사진·PDF로 올려줘.")
+    if suffix in OLD_OFFICE:
+        raise OfficeError("옛날 형식(.doc·.ppt·.xls)은 못 읽어. 새 형식(.docx·.pptx·.xlsx)이나 PDF로 저장해서 올려줘.")
+    if suffix in ZIP_DOCS:
+        text = read_zip_doc(path)
+    elif suffix == ".hwp":
+        text = read_hwp(path)
+    else:
+        text = read_text(path)
+        if text is None:
+            raise OfficeError(f"이 파일은 못 읽어. {SUPPORTED}만 돼.")
+    if not text.strip():
+        raise OfficeError("파일에서 글자를 못 찾았어. 사진이나 PDF로 올려줘.")
+    return [text]
+
+
+def first_title(markdown: str) -> str:
+    """# 제목, 없으면 앞쪽의 짧은 첫 줄 (표·목록 줄은 빼고). 못 찾으면 빈 문자열 → 실장이 지은 제목을 쓴다."""
+    lines = [line for line in markdown.splitlines() if line.strip()]
+    heading = next((line[2:].strip() for line in lines if line.startswith("# ")), "")
+    if heading:
+        return heading
+    for line in lines[:5]:
+        text = line.strip()
+        if "	" not in line and "|" not in text and not text.startswith(("#", "-", "*", ">")) and len(text) <= 40:
+            return text
+    return ""
 
 
 def scan(files: list[Path], llm=chat, say=quiet) -> Material:
@@ -56,7 +88,7 @@ def scan(files: list[Path], llm=chat, say=quiet) -> Material:
         else:
             parts.append(llm(OCR_SYSTEM, "이 프린트를 마크다운으로 옮겨줘.", images=[page], temperature=0).strip())
     markdown = "\n\n---\n\n".join(parts)
-    title = next((line[2:].strip() for line in markdown.splitlines() if line.startswith("# ")), Path(files[0]).stem)
+    title = first_title(markdown)
     warnings = []
     if len(markdown) > MAX_INPUT_CHARS:
         warnings.append(f"자료가 길어서({len(markdown)}자) 앞 {MAX_INPUT_CHARS}자만 정리에 써.")

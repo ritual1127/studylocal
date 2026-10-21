@@ -2,7 +2,14 @@
 name = "ritual-study-office"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["fastapi", "uvicorn", "python-multipart", "pillow", "pypdfium2"]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "python-multipart",
+    "pillow",
+    "pypdfium2",
+    "olefile>=0.47",
+]
 
 [dependency-groups]
 dev = ["pytest", "httpx"]
