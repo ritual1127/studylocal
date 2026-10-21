@@ -344,6 +344,7 @@ def _phone_state(office: Office) -> dict:
         item = {k: j.get(k) for k in PHONE_JOB}
         item["results"] = {k: v for k, v in j["results"].items()
                            if isinstance(v, str) and (v.startswith("/files/jobs/") or k == "deploy_url")}
+        item["results"]["files"] = [f for f in j["results"].get("files") or [] if str(f.get("url", "")).startswith("/files/jobs/")]
         item["outputs"] = [s for s in j["steps"] if s in OUTPUTS]
         item["last"] = j["approvals"][-1] if j["approvals"] else None
         jobs.append(item)

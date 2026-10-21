@@ -1,12 +1,18 @@
-import { $, act, ddayText, h, minutesText, put, store, toast } from "./ui.js";
-import { animateOffice, createViews, jobTitle } from "./views.js";
+import { $, NAMES, act, ddayText, h, minutesText, put, store, toast } from "./ui.js";
+import { animateOffice, createViews, jobTitle, teamPanel } from "./views.js";
 
 const TABS = [["office", "사무실"], ["vault", "보관함"], ["today", "오늘"], ["schedule", "일정"], ["ceo", "대표실"], ["settings", "설정"]];
 const MAX_UPLOAD = 50_000_000;
 
 let state = null;
 let ref = null; // [이 자료로 더 하기]로 고른 작업
-const ctx = { state: () => state, refresh: () => poll(false), rerender, openTab, setRef };
+let teamRole = null; // 팝업으로 보고 있는 팀
+const refreshHooks = [];
+const ctx = {
+  state: () => state, rerender, openTab, setRef, editAgain, openTeam, mention,
+  refresh: () => { refreshHooks.forEach((fn) => fn()); return poll(false); },
+  onRefresh: (fn) => refreshHooks.push(fn),
+};
 const views = createViews(ctx);
 
 // ---- 탭과 나눠 보기 ----
@@ -83,7 +89,34 @@ function render(s) {
     badge.textContent = pending;
   }
   for (const tab of visibleTabs()) views[tab].update(s);
+  if (teamRole && !$("#team").hidden) put($("#teamBody"), teamPanel(teamRole, ctx));
   tickFocus();
+}
+
+// ---- 4인 1조 팀 팝업 ----
+function openTeam(role) {
+  teamRole = role;
+  put($("#teamBody"), teamPanel(role, ctx));
+  openOverlay($("#team"));
+}
+
+function mention(role) {
+  closeOverlays();
+  const box = $("#text");
+  const rest = box.value.replace(/^\s*@\S+\s*/, "");
+  box.value = role === "manager" ? rest : `@${NAMES[role]} ${rest}`;
+  box.focus();
+  box.setSelectionRange(box.value.length, box.value.length);
+  toast(role === "manager" ? "rab에게 시킬 일을 적어 주세요" : `${NAMES[role]} 팀에 시킬 일을 적어 주세요`);
+}
+
+function editAgain(job) {
+  const box = $("#text");
+  box.value = job.text;
+  if (job.results?.text) ref = { id: job.id, title: jobTitle(job) };
+  renderChips();
+  box.focus();
+  toast("지시를 고쳐서 다시 보내세요" + (ref ? " (그 자료를 쓸게요)" : ""));
 }
 
 function rerender() {
@@ -200,7 +233,7 @@ function setRef(job) {
   ref = { id: job.id, title: jobTitle(job) };
   renderChips();
   $("#text").focus();
-  toast(`'${ref.title}' 자료로 뭘 할지 적어줘 (예: 문제 10개, 암기카드, 번역)`);
+  toast(`'${ref.title}' 자료로 뭘 할지 적어 주세요 (예: 문제 10개, 암기카드, 번역)`);
 }
 
 function addFiles(list) {
@@ -228,11 +261,41 @@ $("#pick").addEventListener("change", (e) => {
   e.target.value = "";
 });
 
+// ---- 빠른 지시 · 지시 기록 ----
+const QUICK = [["PDF로", "PDF 노트로 만들어줘"], ["문제 10개", "문제 10개 만들어줘"], ["암기카드", "암기카드 만들어줘"],
+               ["마인드맵", "마인드맵 그려줘"], ["분석", "분석해줘"], ["번역", "영어로 번역해줘"],
+               ["파일 찾기", "바탕화면에서 ○○ 찾아서 가져와"], ["오늘 뭐 해?", "오늘 뭐 해야 돼?"], ["폰으로 보내기", "내 폰으로 ○○라고 보내"],
+               ["나중에 알려줘", "30분 뒤에 ○○ 알려줘"]];
+$("#quick").replaceChildren(...QUICK.map(([label, phrase]) => h("button", { class: "chip-btn", type: "button", onclick: () => {
+  const box = $("#text");
+  box.value = (box.value.trim() ? box.value.trim() + " " : "") + phrase;
+  box.focus();
+  const at = box.value.lastIndexOf("○○");
+  if (at >= 0) box.setSelectionRange(at, at + 2); // ○○ 자리를 바로 고쳐 쓰게
+} }, label)));
+
+let recall = -1;
+const pastCommands = () => store.get("ritual-history", []) ?? [];
+function remember(text) {
+  if (!text.trim()) return;
+  store.set("ritual-history", [text, ...pastCommands().filter((t) => t !== text)].slice(0, 50));
+  recall = -1;
+}
+
 $("#text").addEventListener("keydown", (e) => {
   // 한글 조합 중 Enter는 글자 확정이라 보내지 않는다
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
     e.preventDefault();
     $("#bar").requestSubmit();
+    return;
+  }
+  const box = e.currentTarget;
+  const past = pastCommands();
+  if ((e.key === "ArrowUp" && (box.value === "" || recall >= 0) && recall < past.length - 1)
+      || (e.key === "ArrowDown" && recall >= 0)) {
+    e.preventDefault();
+    recall += e.key === "ArrowUp" ? 1 : -1;
+    box.value = recall >= 0 ? past[recall] : "";
   }
 });
 
@@ -249,12 +312,13 @@ $("#bar").addEventListener("submit", async (e) => {
     const res = await fetch("/api/command", { method: "POST", body: form });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `오류가 났어 (${res.status})`);
+    remember($("#text").value);
     $("#text").value = "";
     files.length = 0;
     ref = null;
     renderChips();
     showError("");
-    toast("실장한테 넘겼어!", "ok");
+    toast("rab에게 맡겼어요!", "ok");
     poll(false);
   } catch (err) {
     showError(err instanceof TypeError ? "사무실 서버에 못 보냈어." : err.message);

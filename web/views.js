@@ -1,12 +1,13 @@
 // 탭 화면들: 사무실 · 보관함 · 오늘 · 일정 · 대표실 · 설정
-import { DECOR, SPRITES } from "./sprites.js";
+import { DECOR, SPRITES, variant } from "./sprites.js";
 import {
-  DUTY, NAMES, OUTPUT_NAMES, ROLE_OF, TEAMS, act, ddayText, getJSON, h, keyed, minutesText, put, rich, teamOf, toast,
+  DUTY, NAMES, OUTPUT_NAMES, ROLE_OF, SUBS, TEAMS, TEAM_STEP, act, ddayText, getJSON, h, keyed, minutesText, put, rich,
+  store, teamOf, toast,
 } from "./ui.js";
 
 const LIGHT = { idle: "쉬는 중", working: "일하는 중", done: "끝", error: "에러" };
 const BADGE = { queued: "접수", running: "진행 중", review: "결재 대기", revising: "수정 중", done: "완료",
-                error: "에러", needs_input: "되물음" };
+                error: "에러", needs_input: "되물음", cancelled: "취소됨" };
 const LINKS = [["analysis", "분석 보고서"], ["pdf", "PDF 노트"], ["quiz", "문제 풀기"], ["cards", "암기카드"],
                ["mindmap", "마인드맵"], ["translation", "번역"], ["csv", "카드 CSV(Anki)"], ["text", "원문"]];
 const WEEK = "일월화수목금토";
@@ -64,46 +65,87 @@ function answerBox(job) {
 }
 
 const outputsOf = (job) => (job.steps ?? []).filter((s) => OUTPUT_NAMES[s]).map((s) => OUTPUT_NAMES[s]);
-const cardSig = (job) => JSON.stringify({ ...job, log: undefined }) + armed.has("deploy:" + job.id) + armed.has("delete:" + job.id);
+const ACTIVE = ["queued", "running", "revising"];
+const renaming = new Set(); // 제목을 고치는 중인 카드
+const cardSig = (job, ctx) => JSON.stringify({ ...job, log: undefined }) + [...armed.keys()].filter((k) => k.endsWith(":" + job.id))
+  + renaming.has(job.id) + (job.status === "queued" ? queuePos(job, ctx) : "");
+const queuePos = (job, ctx) => (ctx.state()?.jobs ?? []).filter((j) => j.status === "queued").sort((a, b) => a.no - b.no)
+  .findIndex((j) => j.id === job.id) + 1;
+
+function titleRow(job, ctx) {
+  if (!renaming.has(job.id)) {
+    return h("div", { class: "card-title" }, h("span", { class: "no" }, jobNo(job)), job.star && h("b", { class: "star", title: "즐겨찾기" }, "★"),
+      h("h3", {}, jobTitle(job)));
+  }
+  const input = h("input", { class: "input", value: jobTitle(job), maxlength: 80, "aria-label": "새 제목" });
+  const done = () => { renaming.delete(job.id); ctx.rerender(); };
+  const save = async () => {
+    if (await act(jobUrl(job.id, "rename"), { title: input.value }, "제목 바꿨어요")) ctx.refresh();
+    done();
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.isComposing) save();
+    if (e.key === "Escape") done();
+  });
+  setTimeout(() => input.focus(), 0);
+  return h("div", { class: "card-title rename" }, input, h("button", { class: "btn small", type: "button", onclick: save }, "저장"),
+    h("button", { class: "btn alt small", type: "button", onclick: done }, "취소"));
+}
 
 function jobCard(job, ctx) {
   const r = job.results ?? {};
   const id = job.id;
+  const twice = (key, run) => () => arm(key + ":" + id, ctx.rerender) && run();
   const actions = resultLinks(job);
+  for (const f of r.files ?? []) actions.push(h("a", { class: "btn alt", href: f.url, download: f.name }, `가져온 파일: ${f.name}`));
   if (isFile(r.text)) actions.push(h("button", { class: "btn alt", type: "button", onclick: () => ctx.setRef(job) }, "이 자료로 더 하기"));
   if (job.status === "review") actions.push(h("button", { class: "btn hot", type: "button", onclick: () => ctx.openTab("ceo") }, "결재하러 가기"));
-  if (job.status === "error") {
-    actions.push(h("button", { class: "btn", type: "button", onclick: () => act(jobUrl(id, "retry"), undefined, "다시 시켰어").then(ctx.refresh) }, "다시"));
+  if (ACTIVE.includes(job.status)) {
+    actions.push(h("button", { class: "btn no", type: "button",
+      onclick: () => act(jobUrl(id, "cancel"), undefined, job.status === "queued" ? "취소했어요" : "지금 단계가 끝나면 멈출게요").then(ctx.refresh) }, "중단"));
+  } else {
+    const careful = job.status === "done" || job.status === "review";  // 결과가 바뀌니 두 번 눌러서
+    const on = armed.has("rerun:" + id);
+    actions.push(h("button", { class: on ? "btn armed" : "btn", type: "button",
+      onclick: careful ? twice("rerun", () => act(jobUrl(id, "retry"), undefined, "처음부터 다시 할게요").then(ctx.refresh))
+        : () => act(jobUrl(id, "retry"), undefined, "다시 시켰어요").then(ctx.refresh) },
+      on ? "결과가 새로 바뀌어요. 한 번 더" : job.status === "error" ? "다시" : "처음부터 다시"));
   }
+  actions.push(h("button", { class: "btn alt", type: "button", onclick: () => ctx.editAgain(job) }, "고쳐서 다시"));
   if (isFile(r.quiz) && job.status === "done") {
     const on = armed.has("deploy:" + id);
-    actions.push(h("button", {
-      class: on ? "btn armed" : "btn", type: "button",
-      onclick: () => arm("deploy:" + id, ctx.rerender) && act(jobUrl(id, "deploy"), undefined, "배포담당한테 넘겼어. 잠깐만!").then(ctx.refresh),
-    }, on ? "공개 링크로 올릴까? 한 번 더 누르면 배포" : "배포"));
+    actions.push(h("button", { class: on ? "btn armed" : "btn", type: "button",
+      onclick: twice("deploy", () => act(jobUrl(id, "deploy"), undefined, "배포담당한테 넘겼어요").then(ctx.refresh)) },
+      on ? "공개 링크로 올릴까요? 한 번 더 누르면 배포" : "배포"));
   }
-  if (Object.keys(r).length) actions.push(h("button", { class: "btn alt", type: "button", onclick: () => act(jobUrl(id, "open")) }, "폴더"));
-  if (!["queued", "running", "revising"].includes(job.status)) {
+  actions.push(h("button", { class: "btn alt", type: "button", title: "즐겨찾기",
+    onclick: () => act(jobUrl(id, "star")).then(ctx.refresh) }, job.star ? "★ 빼기" : "☆ 즐겨찾기"));
+  actions.push(h("button", { class: "btn alt", type: "button", onclick: () => { renaming.add(id); ctx.rerender(); } }, "제목 바꾸기"));
+  if (Object.keys(r).length) {
+    actions.push(h("a", { class: "btn alt", href: jobUrl(id, "zip"), download: "" }, "한 번에 받기(zip)"));
+    actions.push(h("button", { class: "btn alt", type: "button", onclick: () => act(jobUrl(id, "open")) }, "폴더"));
+  }
+  if (!ACTIVE.includes(job.status)) {
     const on = armed.has("delete:" + id);
-    actions.push(h("button", {
-      class: on ? "btn armed" : "btn alt", type: "button",
-      onclick: () => arm("delete:" + id, ctx.rerender) && act(jobUrl(id, "delete"), undefined, "지웠어").then(ctx.refresh),
-    }, on ? "정말 지울까? 한 번 더" : "지우기"));
+    actions.push(h("button", { class: on ? "btn armed" : "btn alt", type: "button",
+      onclick: twice("delete", () => act(jobUrl(id, "delete"), undefined, "지웠어요").then(ctx.refresh)) }, on ? "정말 지울까요? 한 번 더" : "지우기"));
   }
   const url = typeof r.deploy_url === "string" && r.deploy_url.startsWith("https://") ? r.deploy_url : null;
-  const meta = [job.created, job.seconds ? `${job.seconds}초 걸림` : "", job.revision ? `수정 ${job.revision}번` : "",
+  const pos = job.status === "queued" ? queuePos(job, ctx) : 0;
+  const meta = [job.created, pos ? `대기 ${pos}번째` : "", job.seconds ? `${job.seconds}초 걸림` : "", job.revision ? `수정 ${job.revision}번` : "",
                 job.names?.join(", ")].filter(Boolean).join(" · ");
   return h("article", { class: `card ${job.status}` },
-    h("header", { class: "card-head" },
-      h("div", { class: "card-title" }, h("span", { class: "no" }, jobNo(job)), h("h3", {}, jobTitle(job))),
-      h("span", { class: `badge ${job.status}` }, BADGE[job.status] ?? job.status)),
+    h("header", { class: "card-head" }, titleRow(job, ctx), h("span", { class: `badge ${job.status}` }, BADGE[job.status] ?? job.status)),
     stampOf(job),
-    h("p", { class: "muted" }, meta),
-    job.reply && h("p", { class: "reply" }, h("b", { style: "color: var(--c1)" }, "실장 "), job.reply),
+    h("p", { class: "muted" }, meta, job.assignee && h("span", { class: "chip-team" }, `${NAMES[job.assignee]} 팀`)),
+    h("p", { class: "muted cmd" }, `지시: ${job.text}`),
+    job.reply && h("p", { class: "reply" }, h("b", { style: "color: var(--c1)" }, "rab "), job.reply),
+    job.trace?.length && h("details", { class: "trace" }, h("summary", {}, `rab 작업 기록 ${job.trace.length}개`),
+      h("ol", {}, job.trace.map((t) => h("li", {}, t)))),
     job.warnings?.length && h("ul", { class: "warn" }, job.warnings.map((w) => h("li", {}, w))),
     job.error && h("p", { class: "err" }, job.error),
     job.answer && answerBox(job),
-    actions.length && h("div", { class: "actions" }, actions),
+    h("div", { class: "actions" }, actions),
     url && h("p", { class: "deployed" }, h("a", { href: url, target: "_blank", rel: "noopener" }, url),
       h("button", { class: "btn alt", type: "button", onclick: (e) => copy(url, e.currentTarget) }, "복사")),
     r.deploy_error && h("p", { class: "err" }, r.deploy_error));
@@ -152,7 +194,9 @@ function officeView(ctx) {
     floor.append(h("p", { class: "team-sign", style: `--team: ${team.color}` }, h("b", {}, team.name),
       h("span", { class: "muted" }, team.roles.map((r) => NAMES[r]).join(" · "))));
     for (const role of team.roles) {
-      const { el, desk } = deskEl(team.color, SPRITES[role], NAMES[role], DUTY[role]);
+      const { el, desk } = deskEl(team.color, SPRITES[role], NAMES[role], DUTY[role], {
+        tag: "button", props: { type: "button", "aria-label": `${NAMES[role]} 팀 보기 (4인 1조)`, onclick: () => ctx.openTeam(role) },
+      });
       floor.append(el);
       desks[role] = desk;
     }
@@ -214,32 +258,122 @@ function officeView(ctx) {
   };
 }
 
-// ---- 보관함 ----
+// ---- 보관함: 최근 · 전체 기록 ----
 function vaultView(ctx) {
-  const FILTERS = [["all", "전체"], ["review", "결재 대기"], ["done", "완료"], ["error", "에러·되물음"]];
+  const FILTERS = [["all", "전체"], ["review", "결재 대기"], ["done", "완료"], ["error", "에러·취소"], ["star", "★"]];
   let filter = "all";
+  let mode = store.get("ritual-vault-mode", "recent");
+  let history = { jobs: [], total: 0, counts: {}, more: false };
+  let fetched = 0;
+  let loading = false;
   const list = h("div", { class: "jobs" });
-  const search = h("input", { class: "input", type: "search", placeholder: "제목·명령·파일 이름으로 찾기", "aria-label": "보관함 검색", oninput: () => render() });
+  const more = h("button", { class: "btn alt more", type: "button", hidden: true, onclick: () => load(true) }, "더 보기");
+  const summary = h("p", { class: "muted" });
+  let typing = null;
+  const search = h("input", { class: "input", type: "search", placeholder: "제목·지시·파일 이름으로 찾기", "aria-label": "보관함 검색",
+    oninput: () => { clearTimeout(typing); typing = setTimeout(() => (mode === "history" ? load() : render()), 250); } });
   const chips = h("div", { class: "filters", role: "group", "aria-label": "보관함 거르기" });
+  const modes = h("div", { class: "seg", role: "group", "aria-label": "보관함 보기" });
   function drawChips() {
     chips.replaceChildren(...FILTERS.map(([id, label]) => h("button", {
       type: "button", class: "chip-btn" + (id === filter ? " on" : ""), "aria-pressed": String(id === filter),
-      onclick: () => { filter = id; drawChips(); render(); },
+      onclick: () => { filter = id; drawChips(); mode === "history" ? load() : render(); },
+    }, label, mode === "history" && history.counts[id] != null ? ` ${history.counts[id]}` : "")));
+    modes.replaceChildren(...[["recent", "최근"], ["history", "전체 기록"]].map(([id, label]) => h("button", {
+      type: "button", class: "chip-btn" + (id === mode ? " on" : ""), "aria-pressed": String(id === mode),
+      onclick: () => { mode = id; store.set("ritual-vault-mode", id); drawChips(); id === "history" ? load() : render(); },
     }, label)));
   }
   drawChips();
-  const match = (j) => filter === "all" || j.status === filter || (filter === "review" && j.status === "revising")
-    || (filter === "error" && j.status === "needs_input");
+
+  async function load(append = false) {
+    if (loading) return;
+    loading = true;
+    const params = new URLSearchParams({ q: search.value.trim(), offset: append ? history.jobs.length : 0, limit: 30 });
+    if (filter === "star") params.set("star", "true");
+    else if (filter !== "all") params.set("status", filter);
+    try {
+      const page = await getJSON(`/api/history?${params}`);
+      history = append ? { ...page, jobs: [...history.jobs, ...page.jobs] } : page;
+      fetched = Date.now();
+      drawChips();
+      render();
+    } catch {
+      toast("기록을 못 불러왔어요", "err");
+    } finally {
+      loading = false;
+    }
+  }
+  ctx.onRefresh(() => { fetched = 0; });
+
+  const match = (j) => filter === "all" || (filter === "star" ? j.star : j.status === filter || (filter === "review" && j.status === "revising")
+    || (filter === "error" && ["needs_input", "cancelled"].includes(j.status)));
   function render() {
     const s = ctx.state();
     if (!s) return;
+    if (mode === "history") {
+      more.hidden = !history.more;
+      summary.textContent = `전체 ${history.counts.all ?? 0}건 중 ${history.total}건`;
+      const groups = [];
+      for (const job of history.jobs) {
+        const day = job.created.slice(0, 10);
+        if (!groups.length || groups.at(-1).day !== day) groups.push({ day, jobs: [] });
+        groups.at(-1).jobs.push(job);
+      }
+      put(list, ...(groups.length ? groups.map((g) => h("section", { class: "day-group" },
+        h("h3", {}, dayLabel(g.day), " ", h("span", { class: "muted" }, `${g.jobs.length}건`)), g.jobs.map((j) => jobCard(j, ctx))))
+        : [h("p", { class: "empty" }, "맞는 기록이 없어요")]));
+      list._keyed = null;
+      return;
+    }
+    more.hidden = true;
+    summary.textContent = "";
     const q = search.value.trim().toLowerCase();
     const jobs = s.jobs.filter((j) => match(j) && (!q || `${j.title} ${j.text} ${(j.names ?? []).join(" ")}`.toLowerCase().includes(q)));
-    keyed(list, jobs, (j) => j.id, cardSig, (j) => jobCard(j, ctx),
-      q || filter !== "all" ? "맞는 작업이 없어" : "아직 결과가 없어. 아래 지시 칸에 일을 시켜줘!");
+    keyed(list, jobs, (j) => j.id, (j) => cardSig(j, ctx), (j) => jobCard(j, ctx),
+      q || filter !== "all" ? "맞는 작업이 없어요" : "아직 결과가 없어요. 아래 지시 칸에 rab에게 시켜 보세요!");
   }
-  const el = h("div", { class: "view" }, h("div", { class: "vault-tools" }, search, chips), list);
-  return { el, update: render };
+  const el = h("div", { class: "view" }, h("div", { class: "vault-tools" }, modes, search, chips), summary, list, more);
+  return {
+    el,
+    show: () => mode === "history" && load(),
+    update() {
+      if (mode === "history" && Date.now() - fetched > 10000 && !renaming.size && !armed.size) load();
+      else if (mode === "recent") render();
+    },
+  };
+}
+
+// ---- 4인 1조 팀 팝업 ----
+export function teamPanel(role, ctx) {
+  const s = ctx.state();
+  const st = s?.staff[role] ?? { state: "idle", say: "" };
+  const team = teamOf(role);
+  const steps = TEAM_STEP[role];
+  const recent = (s?.jobs ?? []).filter((j) => j.assignee === role || (steps ? (j.steps ?? []).some((x) => steps.includes(x))
+    : role === "manager" || (role === "deployer" && j.results?.deploy_url))).slice(0, 5);
+  const face = (sprite) => {
+    const canvas = h("canvas", { class: "sprite", width: 16, height: 16, "aria-hidden": "true" });
+    draw({ ctx: canvas.getContext("2d"), sprite, drawn: "" }, 0, 0);
+    return canvas;
+  };
+  const busy = st.state === "working";
+  const turn = Math.floor(Date.now() / 4000) % 3; // 일할 땐 하위 직원이 돌아가며 맡는다
+  const members = [
+    h("div", { class: "member lead" }, face(SPRITES[role]), h("b", {}, NAMES[role]), h("small", {}, `팀장 · ${DUTY[role]}`),
+      h("small", { class: `state ${st.state}` }, st.say || LIGHT[st.state])),
+    ...SUBS[role].map(([name, skill], i) => h("div", { class: "member" }, face(variant(SPRITES[role], i)), h("b", {}, name), h("small", {}, skill),
+      h("small", { class: `state ${busy && i === turn ? "working" : "idle"}` }, busy && i === turn ? "함께 일하는 중" : "대기"))),
+  ];
+  return h("div", { class: "team-panel", style: `--team: ${team.color}` },
+    h("h2", { id: "teamTitle" }, `${NAMES[role]} 팀`, h("span", { class: "muted" }, ` · ${team.name} · 4인 1조`)),
+    h("div", { class: "members" }, members),
+    h("h3", {}, "최근 작업"),
+    h("ul", { class: "list" }, recent.length ? recent.map((j) => h("li", { class: "event" }, h("small", { class: "time" }, jobNo(j)),
+      h("span", {}, jobTitle(j)), h("span", { class: `badge ${j.status}` }, BADGE[j.status] ?? j.status)))
+      : [h("li", { class: "empty" }, "아직 이 팀 작업이 없어요")]),
+    h("div", { class: "actions" }, h("button", { class: "btn", type: "button", "data-first": "", onclick: () => ctx.mention(role) },
+      role === "manager" ? "rab에게 시키기" : `${NAMES[role]} 팀에 시키기`)));
 }
 
 // ---- 오늘 ----
@@ -489,6 +623,7 @@ function ceoView(ctx) {
 
 // ---- 설정 ----
 const SHORTCUTS = [["Alt + 1~6", "탭 바꾸기 (사무실·보관함·오늘·일정·대표실·설정)"], ["Alt + S", "나눠 보기 켜고 끄기"],
+                   ["↑ / ↓", "지시 칸이 비었을 때 이전 지시 불러오기"],
                    ["Alt + G", "공부모드"], ["/", "지시 칸으로"], ["Enter", "보내기 (Shift + Enter = 줄바꿈)"], ["Esc", "창 닫기"]];
 
 function settingsView(ctx) {
@@ -497,10 +632,12 @@ function settingsView(ctx) {
   let data = null;
   let remote = null;
   let boot = null;
+  let perms = null;
 
   async function load() {
     try {
-      [data, remote, boot] = await Promise.all([getJSON("/api/settings"), getJSON("/api/remote"), getJSON("/api/startup")]);
+      [data, remote, boot, perms] = await Promise.all([getJSON("/api/settings"), getJSON("/api/remote"), getJSON("/api/startup"),
+        getJSON("/api/permissions")]);
       draw();
     } catch {
       box.replaceChildren(h("p", { class: "err" }, "설정을 못 불러왔어."));
@@ -568,6 +705,56 @@ function settingsView(ctx) {
           }, on ? "폰에서 다시 QR을 찍어야 해. 한 번 더 누르면 바꿔" : "열쇠 바꾸기"))));
   }
 
+  async function setPerms(changes, msg) {
+    const res = await act("/api/permissions", changes, msg);
+    if (res) perms = res;
+    draw();
+  }
+
+  const FOLDER_NAMES = { Desktop: "바탕화면", Documents: "문서", Downloads: "다운로드", Pictures: "사진", Music: "음악", Videos: "동영상",
+                         OneDrive: "OneDrive" };
+  function permsBox() {
+    const extra = h("input", { class: "input grow", placeholder: "더 허용할 폴더 경로 (예: D:\\학교 자료)", "aria-label": "허용할 폴더 경로" });
+    return section("rab 권한",
+      h("p", {}, "rab은 아래 폴더 안에서만 파일을 찾고·읽고·가져오고·새로 만들어요. AppData·.ssh·시스템 폴더는 늘 막혀 있어요."),
+      h("p", { class: "muted" }, "지우기·옮기기·이름 바꾸기·덮어쓰기·명령 실행은 rab이 못 해요. 시키면 그 폴더를 열어 드려요 (대표님이 직접)."),
+      toggle("파일 읽기 (찾기·폴더 보기·내용 읽기)", perms.read, (v) => setPerms({ read: v }, v ? "읽기 권한 켰어요" : "읽기 권한 껐어요")),
+      toggle("파일 만들기·가져오기 (새 파일 쓰기·복사·새 폴더·사무실로 가져오기)", perms.write,
+        (v) => setPerms({ write: v }, v ? "만들기 권한 켰어요" : "만들기 권한 껐어요")),
+      h("div", { class: "rules" }, Object.entries(perms.folders).map(([key, path]) => h("label", { class: "switch", title: path },
+        h("input", { type: "checkbox", checked: !perms.off.includes(key),
+          onchange: (e) => setPerms({ off: e.target.checked ? perms.off.filter((k) => k !== key) : [...perms.off, key] }) }),
+        h("span", {}, FOLDER_NAMES[key] ?? key)))),
+      perms.extra.length && h("ul", { class: "list" }, perms.extra.map((path) => h("li", { class: "event" }, h("span", {}, path),
+        h("button", { class: "x", type: "button", "aria-label": `${path} 빼기`,
+          onclick: () => setPerms({ extra: perms.extra.filter((p) => p !== path) }, "폴더를 뺐어요") }, "✕")))),
+      h("form", { class: "row-form", onsubmit: (e) => { e.preventDefault(); if (extra.value.trim()) setPerms({ extra: [...perms.extra, extra.value.trim()] }, "폴더를 허용했어요"); } },
+        extra, h("button", { class: "btn alt", type: "submit" }, "폴더 추가")));
+  }
+
+  function resetBox() {
+    const RESETS = [["staff", "직원 자리 정리", "말풍선·에러 불을 끄고 다 쉬는 중으로"], ["queue", "대기열 비우기", "대기 중인 작업을 전부 취소"],
+                    ["stop", "모두 중단", "대기·진행 중인 작업을 전부 멈춤"], ["vault", "보관함 정리", "완료·에러·취소 작업을 지움 (★와 결재 대기는 남음)"],
+                    ["todos", "완료한 할 일 지우기", "체크한 할 일만"], ["settings", "설정 기본값", "알림·AI 모드를 처음대로 (폰 주제는 그대로)"]];
+    const button = ([what, label, desc]) => {
+      const on = armed.has("reset:" + what);
+      return h("div", { class: "reset-row" }, h("button", { class: on ? "btn armed" : "btn alt", type: "button",
+        onclick: () => arm("reset:" + what, draw) && act("/api/reset", { what }).then((res) => {
+          if (res) toast(`${label}: ${res.count}개`, "ok");
+          ctx.refresh();
+          load();
+        }) }, on ? `${label}? 한 번 더` : label), h("small", { class: "muted" }, desc));
+    };
+    const layout = armed.has("reset:layout");
+    return section("초기화", ...RESETS.map(button),
+      h("div", { class: "reset-row" }, h("button", { class: layout ? "btn armed" : "btn alt", type: "button",
+        onclick: () => {
+          if (!arm("reset:layout", draw)) return;
+          for (const key of ["ritual-layout", "ritual-welcomed", "ritual-history", "ritual-vault-mode"]) store.set(key, null);
+          location.reload();
+        } }, layout ? "화면 배치·안내 초기화? 한 번 더" : "화면 배치·안내 초기화"), h("small", { class: "muted" }, "탭 배치, 처음 안내, 지시 기록")));
+  }
+
   function draw() {
     if (!data) return;
     const s = data.settings;
@@ -603,13 +790,15 @@ function settingsView(ctx) {
         }, "테스트 알림"))),
       s.phone && phoneBox(s),
       remote && remoteBox(),
+      perms && permsBox(),
       section("최근 알림", h("ul", { class: "list" }, data.history.length ? data.history.map((n) => h("li", {},
         h("small", { class: "muted" }, n.time), " ", h("b", {}, n.title), " ", n.body,
         n.errors.length ? h("small", { class: "err" }, ` (${n.errors.join(", ")})`) : null)) : [h("li", { class: "empty" }, "아직 보낸 알림이 없어")])),
       section("데이터", h("p", {}, "작업·일정·설정을 zip 하나로 받아. 되돌릴 땐 output 폴더에 풀면 돼."),
         h("a", { class: "btn", href: "/api/backup", download: "" }, "백업 받기")),
+      resetBox(),
       section("단축키", h("dl", { class: "keys" }, SHORTCUTS.flatMap(([k, v]) => [h("dt", {}, h("kbd", {}, k)), h("dd", {}, v)]))),
-      section("정보", h("p", {}, `ritual의 공부 사무실 v${st?.version ?? ""}`),
+      section("정보", h("p", {}, `ritual's rab v${st?.version ?? ""}`),
         h("p", { class: "muted" }, "AI는 전부 이 PC 안(Ollama)에서 돌아. 인터넷은 위키 자료·폰 알림·배포 때만 써.")));
   }
   return { el, show: load, update() {} };

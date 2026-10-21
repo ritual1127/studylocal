@@ -44,7 +44,7 @@ def register_app() -> None:
     import winreg
 
     with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"Software\Classes\AppUserModelId\{AUMID}") as key:
-        winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, "ritual의 공부 사무실")
+        winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, "ritual's rab")
         winreg.SetValueEx(key, "IconUri", 0, winreg.REG_SZ, str(WEB / "icon.ico"))
 
 

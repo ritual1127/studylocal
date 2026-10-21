@@ -37,7 +37,7 @@ def test_output_files_are_served(make_office, tmp_path):
 
 def test_index_served(make_office):
     r = TestClient(create_app(make_office()), base_url=BASE).get("/")
-    assert r.status_code == 200 and "공부 사무실" in r.text and 'src="app.js"' in r.text
+    assert r.status_code == 200 and "ritual's rab" in r.text and 'src="app.js"' in r.text
 
 def test_cross_site_post_is_rejected(make_office, tmp_path):
     client = TestClient(create_app(make_office()), base_url=BASE)

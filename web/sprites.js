@@ -287,3 +287,13 @@ export const DECOR = {
     "................",
   ]),
 };
+
+// 하위 직원: 팀장 그림에서 머리·옷 색만 바꾼다 (4인 1조가 한 팀처럼 보이게)
+const HAIR = ["#2b2440", "#7a4a2a", "#c9774a", "#e8b04a", "#3a5fcd", "#b5546f", "#e6e1f0", "#1b1428"];
+const CLOTH = ["#2e3a6e", "#1f9e8f", "#4f8a3c", "#6b3fa0", "#d62839", "#c99a1a", "#5b5f73", "#22d3ee"];
+export function variant(sprite, i) {
+  const colors = { ...sprite.colors };
+  if (colors.H) colors.H = HAIR[(i * 3 + 1) % HAIR.length];
+  if (colors.C) colors.C = CLOTH[(i * 5 + 2) % CLOTH.length];
+  return { colors, frames: sprite.frames };
+}

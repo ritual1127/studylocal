@@ -64,7 +64,7 @@ def command(page, text, files=()):
         page.set_input_files("#pick", list(files))
     page.fill("#text", text)
     page.keyboard.press("Enter")
-    expect(page.locator(".toast", has_text="실장한테 넘겼어")).to_be_visible()
+    expect(page.locator(".toast", has_text="rab에게 맡겼어요")).to_be_visible()
 
 
 def test_welcome_shows_once_and_first_layout_is_office_and_vault(page):
@@ -210,7 +210,7 @@ def test_reuse_material_then_delete_job(page):
     expect(newest).to_contain_text("운수 좋은 날")
     expect(newest.get_by_role("link", name="문제 풀기")).to_be_visible()
     newest.get_by_role("button", name="지우기").click()
-    newest.get_by_role("button", name="정말 지울까? 한 번 더").click()
+    newest.get_by_role("button", name="정말 지울까요? 한 번 더").click()
     expect(page.locator(".toast", has_text="지웠어")).to_be_visible()
 
 
@@ -238,3 +238,47 @@ def test_phone_page_with_token(page, browser, office):
     pane(page, 1).get_by_text("끔", exact=True).click()
     expect(pane(page, 1).locator(".remote-link")).to_have_count(0)
     phone.context.close()
+
+
+def test_team_popup_shows_four_and_assigns_work(page):
+    from playwright.sync_api import expect
+    pane(page, 0).get_by_role("button", name="번역가 팀 보기 (4인 1조)").click()
+    popup = page.locator("#team")
+    expect(popup).to_be_visible()
+    expect(popup.locator(".member")).to_have_count(4)
+    expect(popup).to_contain_text("에밀리")
+    popup.get_by_role("button", name="번역가 팀에 시키기").click()
+    expect(popup).to_be_hidden()
+    expect(page.locator("#text")).to_have_value(re.compile("^@번역가 "))
+
+
+def test_history_mode_lists_all_and_card_buttons(page):
+    from playwright.sync_api import expect
+    vault = pane(page, 1)
+    vault.get_by_role("button", name="전체 기록").click()
+    expect(vault.locator(".day-group").first).to_be_visible()
+    expect(vault.locator(".muted", has_text="전체")).to_contain_text("건")
+    first = vault.locator(".card").first
+    first.get_by_role("button", name="☆ 즐겨찾기").click()
+    expect(page.locator(".toast.err")).to_have_count(0)
+    vault.locator(".filters").get_by_role("button", name=re.compile("^★")).click()
+    expect(vault.locator(".card .star").first).to_be_visible()
+    vault.get_by_role("button", name="최근").click()
+    first = vault.locator(".card").first
+    first.get_by_role("button", name="제목 바꾸기").click()
+    first.locator(".rename input").fill("E2E 새 제목")
+    first.locator(".rename input").press("Enter")
+    expect(vault.locator(".card h3", has_text="E2E 새 제목")).to_be_visible()
+
+
+def test_quick_chips_and_command_recall(page):
+    from playwright.sync_api import expect
+    page.locator("#quick").get_by_role("button", name="폰으로 보내기").click()
+    expect(page.locator("#text")).to_have_value("내 폰으로 ○○라고 보내")
+    page.keyboard.type("굿나잇")  # ○○ 자리가 골라져 있어서 바로 바뀐다
+    expect(page.locator("#text")).to_have_value("내 폰으로 굿나잇라고 보내")
+    page.fill("#text", "안녕")
+    page.keyboard.press("Enter")
+    expect(page.locator(".toast", has_text="rab에게 맡겼어요")).to_be_visible()
+    page.locator("#text").press("ArrowUp")
+    expect(page.locator("#text")).to_have_value("안녕")

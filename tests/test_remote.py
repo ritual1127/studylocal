@@ -86,7 +86,7 @@ def test_phone_needs_token_then_cookie(phone):
     assert r.status_code in (302, 307) and r.headers["location"] == "/m"
     cookie = r.headers["set-cookie"].lower()
     assert "httponly" in cookie and "samesite=strict" in cookie
-    assert c.get("/m").status_code == 200 and "공부 사무실" in c.get("/m").text
+    assert c.get("/m").status_code == 200 and "ritual's rab" in c.get("/m").text
     remote.update({"new_token": True})
     assert c.get("/m").status_code == 401  # 토큰을 바꾸면 옛 쿠키는 끝
 

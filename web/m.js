@@ -43,13 +43,18 @@ const links = (j) => LINKS.filter(([k]) => j.results[k]).map(([k, label]) =>
 
 function card(j) {
   const actions = links(j);
+  for (const f of j.results.files ?? []) actions.push(h("a", { class: "btn alt", href: f.url, download: f.name }, f.name));
+  if (["queued", "running", "revising"].includes(j.status)) {
+    actions.push(h("button", { class: "btn no", type: "button", onclick: () => act(`/api/m/jobs/${encodeURIComponent(j.id)}/cancel`, {}, "멈출게요") }, "중단"));
+  }
+  if (Object.keys(j.results).length) actions.push(h("a", { class: "btn alt", href: `/api/m/jobs/${encodeURIComponent(j.id)}/zip`, download: "" }, "zip"));
   if (j.results.text) {
     actions.push(h("button", { class: "btn alt", type: "button", onclick: () => { ref = j; chips(); $("#text").focus(); } }, "이 자료로 더"));
   }
   return h("article", { class: `card ${j.status}` },
     h("header", {}, h("span", { class: "no" }, no(j)), h("b", {}, title(j)), h("span", { class: `badge ${j.status}` }, BADGE[j.status] ?? j.status)),
     h("p", { class: "muted" }, [j.created, j.seconds ? `${j.seconds}초` : "", (j.names ?? []).join(", ")].filter(Boolean).join(" · ")),
-    j.reply && h("p", {}, h("b", { class: "boss" }, "실장 "), j.reply),
+    j.reply && h("p", {}, h("b", { class: "boss" }, "rab "), j.reply),
     j.error && h("p", { class: "err" }, j.error),
     j.answer && h("details", { class: "answer", open: j.answer.length < 300 }, h("summary", {}, "선생님 답변"), h("p", {}, rich(j.answer))),
     j.status === "done" && j.last && h("p", { class: "stamp" }, j.last.action === "auto" ? "자동 승인" : "대표 승인"),
@@ -163,7 +168,7 @@ $("#bar").addEventListener("submit", async (e) => {
     ref = null;
     chips();
     $("#err").textContent = "";
-    toast("실장한테 넘겼어! 다 되면 알림 갈게", "ok");
+    toast("rab에게 맡겼어요! 다 되면 알림 갈게요", "ok");
     poll(false);
   } catch (err) {
     $("#err").textContent = err instanceof TypeError ? "PC 사무실에 못 보냈어." : err.message;

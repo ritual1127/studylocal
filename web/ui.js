@@ -111,15 +111,38 @@ export const TEAMS = [
   { id: "learn", name: "학습지원팀", color: "var(--sky)", roles: ["tutor", "translator", "coach"], extra: "plant" },
 ];
 export const NAMES = {
-  manager: "실장", secretary: "비서", deployer: "배포담당", scanner: "스캐너", librarian: "사서",
+  manager: "rab", secretary: "비서", deployer: "배포담당", scanner: "스캐너", librarian: "사서",
   researcher: "조사원", analyst: "분석가", designer: "디자이너", examiner: "출제위원", cards: "암기담당",
   mapper: "정리왕", tutor: "선생님", translator: "번역가", coach: "코치",
 };
 export const DUTY = {
-  manager: "업무 배분·보고", secretary: "일정·할 일·알림", deployer: "문제 웹 배포", scanner: "모든 파일·사진 판독",
+  manager: "AI 비서 · 무엇이든 시키기", secretary: "일정·할 일·알림", deployer: "문제 웹 배포", scanner: "모든 파일·사진 판독",
   librarian: "문학 원문·해설", researcher: "주제 조사", analyst: "자료 분석 보고서", designer: "PDF 공부 노트",
   examiner: "문제 출제", cards: "암기카드", mapper: "마인드맵", tutor: "질문 답변", translator: "번역",
   coach: "공부 계획·공부모드",
+};
+// 4인 1조: 팀장(위 직원) + 하위 직원 3명 [이름, 전문]
+export const SUBS = {
+  manager: [["탐색봇", "파일·폴더 찾기"], ["통신봇", "PC·폰 알림"], ["기록봇", "작업 기록·보고"]],
+  secretary: [["수진", "일정 등록"], ["민호", "알림 시간 맞추기"], ["하은", "할 일 정리"]],
+  deployer: [["도윤", "웹 올리기"], ["서연", "공개 링크 관리"], ["지호", "올리기 전 점검"]],
+  scanner: [["현우", "사진·스캔 판독"], ["예린", "한글·워드 읽기"], ["태민", "엑셀·표 읽기"]],
+  librarian: [["소윤", "원문 찾기"], ["건우", "작품 해설"], ["다인", "작가·시대 정보"]],
+  researcher: [["준서", "위키 조사"], ["채원", "사실 확인"], ["시우", "조사 요약"]],
+  analyst: [["유나", "난이도 분석"], ["도현", "시험 포인트"], ["서아", "공부법 처방"]],
+  designer: [["하린", "노트 레이아웃"], ["지안", "색·꾸미기"], ["우진", "인쇄 점검"]],
+  examiner: [["민서", "객관식"], ["재윤", "OX·단답"], ["아린", "해설 쓰기"]],
+  cards: [["윤서", "외울 말 뽑기"], ["승민", "앞뒤 다듬기"], ["수아", "Anki 내보내기"]],
+  mapper: [["지우", "갈래 나누기"], ["현서", "개념 잇기"], ["은호", "그림 배치"]],
+  tutor: [["가은", "쉽게 설명"], ["로운", "예시 만들기"], ["나연", "질문 받기"]],
+  translator: [["에밀리", "영어"], ["유키", "일본어"], ["리우", "중국어"]],
+  coach: [["태양", "공부 계획"], ["봄", "집중 타이머"], ["하늘", "응원·기록"]],
+};
+// 팀이 맡는 단계 (팀 팝업의 최근 작업 찾기)
+export const TEAM_STEP = {
+  scanner: ["scan"], librarian: ["literature"], researcher: ["research"], analyst: ["analysis"], designer: ["pdf"],
+  examiner: ["quiz"], cards: ["cards"], mapper: ["mindmap"], tutor: ["answer"], translator: ["translate"],
+  secretary: ["schedule"], coach: ["plan", "focus"],
 };
 export const ROLE_OF = Object.fromEntries(Object.entries(NAMES).map(([role, name]) => [name, role]));
 export const teamOf = (role) => TEAMS.find((t) => t.roles.includes(role)) ?? TEAMS[0];
