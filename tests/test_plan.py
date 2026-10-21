@@ -97,3 +97,63 @@ def test_extra_study_plan_dropped_unless_asked():
     llm = lambda s, u, schema, **k: {"steps": ["schedule", "plan"]}
     assert route("내일 3시 수학 학원 일정 넣어줘", False, llm=llm).steps == ["schedule"]
     assert route("기말고사 11월 20일인데 공부 계획 짜줘", False, llm=llm).steps == ["schedule", "plan"]
+
+# ---- 실장 행동 (에이전트) ----
+def test_actions_are_cleaned_and_unknown_dropped():
+    raw = {"steps": [], "actions": [
+        {"tool": "notify", "to": "phone", "message": " 굿나잇 "},
+        {"tool": "remind", "minutes": 10, "message": "물 마시기"},
+        {"tool": "remind", "time": "25:00", "message": "시간이 이상함"},
+        {"tool": "remind", "time": "21:30", "message": "단어 복습"},
+        {"tool": "hack", "message": "x"}, {"tool": "notify", "message": " "}, "garbage",
+        {"tool": "setting", "key": "ai", "value": "careful"}, {"tool": "setting", "key": "password", "value": "x"},
+        {"tool": "approve"}, {"tool": "today"}]}
+    p = normalize_plan(raw, False)
+    assert [a["tool"] for a in p.actions] == ["notify", "remind", "remind", "setting", "approve"]  # 최대 5개
+    assert p.actions[0] == {"tool": "notify", "to": "phone", "message": "굿나잇"}
+    assert p.actions[2]["time"] == "21:30" and p.actions[4]["job"] == "latest" and p.error is None
+    assert normalize_plan({"steps": [], "actions": [{"tool": "notify", "message": "hi"}]}, False).actions[0]["to"] == "both"
+
+def test_router_prompt_teaches_actions():
+    from office.plan import ROUTER_SCHEMA, ROUTER_SYSTEM
+    assert "notify" in ROUTER_SYSTEM and "굿나잇" in ROUTER_SYSTEM and "actions" in ROUTER_SCHEMA["required"]
+
+# ---- 직원 지정 (@이름) ----
+def test_assignee_keeps_only_that_staff_work():
+    seen = {}
+
+    def llm(system, user, schema, **kw):
+        seen["user"] = user
+        return {"steps": ["research", "pdf", "quiz"], "topic": "광합성"}
+    p = route("광합성 문제 내줘", False, llm=llm, assignee="examiner")
+    assert p.steps == ["research", "quiz"] and "quiz" in seen["user"]
+    p = route("세종대왕", False, llm=lambda s, u, schema, **k: {"steps": []}, assignee="researcher")
+    assert p.steps == ["research"] and p.topic == "세종대왕" and p.error is None  # 조사만, 노트는 안 붙임
+    p = route("이거 읽어줘", False, llm=lambda s, u, schema, **k: {"steps": []}, assignee="scanner")
+    assert p.error and "첨부" in p.error
+    assert "배포" in route("배포해", False, llm=llm, assignee="deployer").error
+    p = route("광합성이 뭐야", False, llm=lambda s, u, schema, **k: {"steps": ["pdf"]}, assignee="tutor")
+    assert p.steps == ["answer"] and p.question == "광합성이 뭐야" and p.error is None
+
+# ---- 실측에서 4B가 행동을 헷갈린 것들 ----
+def fixed(steps, actions):
+    return lambda s, u, schema, **k: {"steps": steps, "actions": actions}
+
+def test_remind_prefers_clock_time_and_fills_missing_message():
+    p = route("9시 반에 단어 복습하라고 알려줘", False, llm=fixed([], [{"tool": "remind", "minutes": 930, "time": "09:30"}]))
+    assert p.actions == [{"tool": "remind", "time": "09:30", "message": "9시 반에 단어 복습하라고"}]
+    p = route("10분 뒤에 물 마시라고 알려줘", False, llm=fixed([], [{"tool": "remind", "minutes": 10}]))
+    assert p.actions == [{"tool": "remind", "minutes": 10, "message": "10분 뒤에 물 마시라고"}]
+
+def test_focus_stop_and_start_do_not_fight():
+    assert route("공부모드 꺼줘", False, llm=fixed(["focus"], [{"tool": "focus_stop"}])).steps == []
+    p = route("25분 공부모드 켜줘", False, llm=fixed(["focus"], [{"tool": "focus_stop"}]))
+    assert p.steps == ["focus"] and p.actions == []
+
+def test_read_actions_only_for_questions_and_no_stray_steps():
+    p = route("오늘 뭐 해야 돼?", False, llm=fixed(["schedule"], [{"tool": "today"}]))
+    assert p.steps == [] and p.actions == [{"tool": "today"}]
+    p = route("내일 오후 3시 수학 학원 일정 넣어줘", False, llm=fixed(["schedule"], [{"tool": "today"}]))
+    assert p.steps == ["schedule"] and p.actions == []
+    p = route("단어 외우기 다 했어", False, llm=fixed(["answer"], [{"tool": "todo_done", "message": "단어 외우기"}]))
+    assert p.steps == [] and p.actions[0]["tool"] == "todo_done"
