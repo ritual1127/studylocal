@@ -1,13 +1,12 @@
-"""rab의 손발: 대표 PC의 허용 폴더 안에서만 파일을 찾고·읽고·쓰고·옮긴다.
+"""rab의 손발: 대표 PC의 허용 폴더 안에서만 파일을 찾고·읽고·가져오고·새로 만든다.
 
-허용 폴더 밖, AppData·.ssh 같은 곳은 늘 막는다. 지우기는 휴지통으로. 위험한 일은 에이전트가 결재를 받은 뒤에만 부른다.
+허용 폴더 밖, AppData·.ssh 같은 곳은 늘 막는다. 지우기·옮기기·덮어쓰기·명령 실행은 rab에게 없다 (대표가 직접).
 """
 import datetime as dt
 import json
 import os
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 from office import OfficeError
@@ -31,15 +30,7 @@ KINDS["문서"] = KINDS["pdf"] | KINDS["한글"] | KINDS["워드"] | KINDS["ppt"
 KINDS.update({"이미지": KINDS["사진"], "그림": KINDS["사진"], "동영상": KINDS["영상"], "hwp": KINDS["한글"], "docx": KINDS["워드"],
               "xlsx": KINDS["엑셀"], "pptx": KINDS["ppt"], "파워포인트": KINDS["ppt"], "텍스트": KINDS["글자"]})
 MAX_SCAN, MAX_SECONDS = 200_000, 5.0
-PERM_NAMES = {"read": "파일 읽기", "write": "파일 만들기", "risky": "옮기기·지우기", "command": "명령 실행"}
-TRASH_PS = r"""Add-Type -AssemblyName Microsoft.VisualBasic
-if (Test-Path -LiteralPath $env:RITUAL_PATH -PathType Container) {
-  [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($env:RITUAL_PATH, 'OnlyErrorDialogs', 'SendToRecycleBin')
-} else {
-  [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($env:RITUAL_PATH, 'OnlyErrorDialogs', 'SendToRecycleBin')
-}"""
-
-
+PERM_NAMES = {"read": "파일 읽기", "write": "파일 만들기·가져오기"}
 def known_folder(key: str) -> Path | None:
     """Windows가 아는 진짜 위치 (OneDrive로 옮긴 바탕화면도)."""
     try:
@@ -72,14 +63,6 @@ def default_folders() -> dict[str, Path]:
     return folders
 
 
-def trash(path: Path) -> None:
-    env = {**os.environ, "RITUAL_PATH": str(path)}
-    result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", TRASH_PS], env=env,
-                            capture_output=True, text=True, timeout=60, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    if result.returncode != 0 or path.exists():
-        raise OfficeError(f"휴지통으로 못 보냈어요: {path.name}")
-
-
 def _norm(text: str) -> str:
     return re.sub(r"[\s_\-.()\[\]]+", "", text.lower())
 
@@ -95,12 +78,12 @@ def _free_name(folder: Path, name: str) -> Path:
 
 
 class Files:
-    """허용 폴더(roots) 안에서만 동작하는 파일 도구. perms: read · write · risky · command 켜기/끄기."""
+    """허용 폴더(roots) 안에서만 동작하는 파일 도구. perms: read · write 켜기/끄기."""
 
-    def __init__(self, roots: list[Path], folders: dict[str, Path], perms: dict, trash=trash):
+    def __init__(self, roots: list[Path], folders: dict[str, Path], perms: dict):
         self.roots = [Path(r).resolve() for r in roots]
         self.folders = {k: Path(v) for k, v in folders.items()}
-        self.perms, self.trash = perms, trash
+        self.perms = perms
 
     def need(self, perm: str) -> None:
         if not self.perms.get(perm):
@@ -193,7 +176,7 @@ class Files:
             raise OfficeError("글자를 바로 못 읽는 파일(사진·스캔)이에요. 가져와서 스캐너 직원에게 읽힐게요.")
         return text if len(text) <= limit else text[:limit] + "\n…(이하 생략)"
 
-    # ---- 만들기 (결재 없이) ----
+    # ---- 만들기 (있는 파일은 절대 덮어쓰지 않는다) ----
     def write(self, name: str, content: str, folder: str = "") -> Path:
         self.need("write")
         target_dir = self.resolve(folder) if folder else self.folders.get("Documents", self.roots[0]) / "ritual's rab"
@@ -222,38 +205,8 @@ class Files:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    # ---- 결재 받은 뒤에만 (에이전트가 보장) ----
-    def move(self, src: Path, to_folder: Path) -> Path:
-        self.need("risky")
-        if not self.allowed(src) or not self.allowed(to_folder):
-            raise OfficeError("허용 폴더 밖이에요.")
-        target = to_folder / src.name
-        if target.exists():
-            raise OfficeError(f"'{to_folder.name}'에 같은 이름이 있어서 안 옮겼어요.")
-        to_folder.mkdir(parents=True, exist_ok=True)
-        return Path(shutil.move(str(src), str(target)))
-
-    def rename(self, src: Path, new_name: str) -> Path:
-        self.need("risky")
-        clean = str(new_name).strip()
-        if not clean or "/" in clean or "\\" in clean or clean in (".", ".."):
-            raise OfficeError("새 이름에는 폴더 경로를 넣을 수 없어요.")
-        target = src.with_name(clean)
-        if target.exists():
-            raise OfficeError("같은 이름이 이미 있어요.")
-        if not self.allowed(src) or not self.allowed(target):
-            raise OfficeError("허용 폴더 밖이에요.")
-        return src.rename(target)
-
-    def delete(self, path: Path) -> None:
-        self.need("risky")
-        if not self.allowed(path) or any(path == root for root in self.roots) or path in self.folders.values():
-            raise OfficeError("허용 폴더 자체나 그 밖은 못 지워요.")
-        self.trash(path)  # 휴지통으로: 되살릴 수 있게
-
-
 def load_permissions(path: Path) -> dict:
-    """설정 → rab 권한. 기본: 알려진 폴더 전부, 읽기·만들기 켬, 옮기기·지우기·명령은 켜 두되 결재 필요."""
+    """설정 → rab 권한. 기본: 알려진 폴더 전부, 읽기·만들기 켬."""
     try:
         saved = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):

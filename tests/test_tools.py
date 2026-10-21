@@ -28,7 +28,7 @@ def home(tmp_path):
 
 def files(home, **perms):
     folders = {"Desktop": home / "Desktop", "Documents": home / "Documents", "Downloads": home / "Downloads"}
-    return Files(roots=[home], folders=folders, perms={"read": True, "write": True, "risky": True, "command": True, **perms})
+    return Files(roots=[home], folders=folders, perms={"read": True, "write": True, **perms})
 
 
 def test_resolve_aliases_and_blocks_escapes(home):
@@ -69,24 +69,12 @@ def test_write_never_overwrites_without_approval(home):
         files(home, write=False).write("x.txt", "x")
 
 
-def test_copy_move_rename_delete_and_folder(home):
-    trashed = []
+def test_copy_and_new_folder_never_overwrite(home):
     f = files(home)
-    f.trash = trashed.append
     src = home / "Downloads" / "수학 숙제.hwp"
-    copied = f.copy(src, f.resolve("바탕화면"))
-    assert copied.exists() and src.exists()
-    moved = f.move(copied, f.resolve("문서"))
-    assert moved == home / "Documents" / "수학 숙제.hwp" and not copied.exists()
-    renamed = f.rename(moved, "수학 숙제 1.hwp")
-    assert renamed.name == "수학 숙제 1.hwp"
-    with pytest.raises(OfficeError):
-        f.rename(renamed, "../밖으로.hwp")
-    f.delete(renamed)
-    assert trashed == [renamed]
+    first = f.copy(src, f.resolve("바탕화면"))
+    second = f.copy(src, f.resolve("바탕화면"))
+    assert first.exists() and src.exists() and second.name == "수학 숙제 (2).hwp"
     assert f.make_folder("문서/새 폴더").is_dir()
-
-
-def test_risky_need_risky_permission(home):
-    with pytest.raises(OfficeError, match="권한"):
-        files(home, risky=False).delete(home / "Downloads" / "수학 숙제.hwp")
+    with pytest.raises(OfficeError, match="만들기"):
+        files(home, write=False).copy(src, f.resolve("바탕화면"))
