@@ -434,7 +434,8 @@ function ceoView(ctx) {
       h("header", { class: "card-head" },
         h("div", { class: "card-title" }, h("span", { class: "no" }, jobNo(job)), h("h3", {}, jobTitle(job))),
         h("span", { class: "badge review" }, job.revision ? `수정본 ${job.revision}` : "결재 대기")),
-      h("p", { class: "muted" }, [job.created, outputsOf(job).join("·"), job.seconds ? `${job.seconds}초` : ""].filter(Boolean).join(" · ")),
+      h("p", { class: "muted" }, [job.created, outputsOf(job).join("·"), job.names?.join(", "), job.seconds ? `${job.seconds}초` : ""]
+        .filter(Boolean).join(" · ")),
       job.error && h("p", { class: "err" }, job.error),
       lastReject && h("p", { class: "muted" }, `지난 반려 의견: ${lastReject.comment}`),
       job.answer && answerBox(job),
