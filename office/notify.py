@@ -8,6 +8,7 @@ import secrets
 import subprocess
 import threading
 import urllib.request
+from urllib.parse import urlsplit
 from collections import deque
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -47,8 +48,14 @@ def register_app() -> None:
         winreg.SetValueEx(key, "IconUri", 0, winreg.REG_SZ, str(WEB / "icon.ico"))
 
 
+def ntfy_root(url: str) -> str:
+    """ntfy JSON 보내기는 서버 루트로만 된다. 주제까지 적힌 구독 주소가 들어와도 루트만 남긴다."""
+    parts = urlsplit(str(url).strip())
+    return f"{parts.scheme}://{parts.netloc}" if parts.scheme and parts.netloc else DEFAULTS["server"]
+
+
 def post_json(url: str, payload: dict) -> None:
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"),
+    req = urllib.request.Request(url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                                  headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=10):
@@ -68,6 +75,7 @@ class Notifier:
         except (OSError, ValueError):
             saved = {}
         self.settings = {k: saved.get(k, v) if type(saved.get(k, v)) is type(v) else v for k, v in DEFAULTS.items()}
+        self.settings["server"] = ntfy_root(self.settings["server"])  # 예전에 잘못 저장된 주소도 고친다
 
     def update(self, changes: dict) -> dict:
         with self.lock:
@@ -81,7 +89,7 @@ class Notifier:
                 server = str(changes["server"]).strip().rstrip("/")
                 if not re.fullmatch(r"https?://[^\s/]+(/[^\s]*)?", server):
                     raise OfficeError("ntfy 서버 주소는 https://로 시작해야 해.")
-                new["server"] = server
+                new["server"] = ntfy_root(server)
             if "briefing" in changes:
                 briefing = str(changes["briefing"]).strip()
                 if briefing and not TIME.fullmatch(briefing):
@@ -110,7 +118,7 @@ class Notifier:
 
     def _phone(self, title: str, body: str, reminder: bool) -> None:
         s = self.settings
-        self.post(s["server"], {"topic": s["topic"], "title": title, "message": body,
+        self.post(ntfy_root(s["server"]), {"topic": s["topic"], "title": title, "message": body,
                                 "priority": 4 if reminder else 3, "tags": ["alarm_clock" if reminder else "books"]})
 
     def send(self, title: str, body: str, reminder: bool = False) -> list[str]:

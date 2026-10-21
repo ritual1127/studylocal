@@ -59,3 +59,15 @@ def test_ai_mode_setting(tmp_path):
     assert n.settings["ai"] == "fast" and n.update({"ai": "careful"})["ai"] == "careful"
     with pytest.raises(OfficeError):
         n.update({"ai": "turbo"})
+
+
+def test_phone_posts_json_to_server_root_even_if_topic_url_was_saved(tmp_path):
+    # 주제 주소(https://ntfy.sh/주제)로 JSON을 보내면 ntfy가 JSON을 글자 그대로 알림에 띄운다 → 늘 서버 루트로
+    (tmp_path / "settings.json").write_text(json.dumps({"phone": True, "topic": "ritual-abc", "server": "https://ntfy.sh/ritual-abc"}),
+                                            encoding="utf-8")
+    n, calls = make(tmp_path)
+    assert n.settings["server"] == "https://ntfy.sh"
+    n.send("결재 요청", "본문")
+    url, payload = calls["post"][0]
+    assert url == "https://ntfy.sh" and payload["topic"] == "ritual-abc" and payload["title"] == "결재 요청"
+    assert n.update({"server": "https://ntfy.example.com/some-topic/"})["server"] == "https://ntfy.example.com"
