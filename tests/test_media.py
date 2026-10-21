@@ -53,6 +53,8 @@ def test_workflows_are_wired():
     w = wan_workflow("a wave", 832, 480, frames=49, seed=3)
     assert {"UNETLoader", "CLIPLoader", "VAELoader", "Wan22ImageToVideoLatent", "CreateVideo", "SaveVideo"} <= {n["class_type"] for n in w.values()}
     assert next(n for n in w.values() if n["class_type"] == "Wan22ImageToVideoLatent")["inputs"]["length"] == 49
+    save = next(n for n in w.values() if n["class_type"] == "SaveVideo")["inputs"]
+    assert save["format"] == "auto" and save["format.codec"] == "auto"  # ComfyUI 0.42: 하위 입력은 '부모.자식' 이름
     for graph in (f, w):  # 모든 연결이 있는 노드를 가리킨다
         for node in graph.values():
             for value in node["inputs"].values():

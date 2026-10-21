@@ -67,7 +67,7 @@ def wan_workflow(prompt: str, width: int, height: int, frames: int, seed: int, s
         "9": {"class_type": "VAEDecode", "inputs": {"samples": ["8", 0], "vae": ["6", 0]}},
         "10": {"class_type": "CreateVideo", "inputs": {"images": ["9", 0], "fps": float(FPS)}},
         "11": {"class_type": "SaveVideo", "inputs": {"video": ["10", 0], "filename_prefix": "rab_video", "format": "auto",
-                                                     "codec": "auto"}},
+                                                     "format.codec": "auto"}},
     }
 
 
