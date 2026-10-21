@@ -149,3 +149,14 @@ def test_reminder_time_rules():
     assert resolve_time(datetime.datetime(2026, 10, 21, 23, 55), minutes=10) == datetime.datetime(2026, 10, 22, 0, 5)
     with pytest.raises(ValueError):
         resolve_time(now)
+
+
+def test_open_refuses_programs_and_scripts(make_agent_office, agent_home):
+    for name in ("setup.exe", "run.bat", "x.ps1", "바로가기.lnk"):
+        (agent_home / "Downloads" / name).write_bytes(b"x")
+    script = Script(*[call("open_thing", target=f"다운로드/{n}") for n in ("setup.exe", "run.bat", "x.ps1", "바로가기.lnk")],
+                    say("못 엽니다."))
+    office = make_agent_office(script)
+    run(office, "다운로드 설치 파일 열어줘")
+    errors = [json.loads(m["content"]).get("error", "") for m in script.seen[-1] if m.get("role") == "tool"]
+    assert office.opened == [] and len(errors) == 4 and all("직접" in e for e in errors)

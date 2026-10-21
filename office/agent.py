@@ -19,6 +19,9 @@ RESULT_CHARS = 3000
 NAMES = {"manager": "rab", "secretary": "비서", "deployer": "배포담당", "scanner": "스캐너", "librarian": "사서",
          "researcher": "조사원", "analyst": "분석가", "designer": "디자이너", "examiner": "출제위원", "cards": "암기담당",
          "mapper": "정리왕", "tutor": "선생님", "translator": "번역가", "coach": "코치"}
+# 열기로 실행되면 프로그램을 돌리는 것과 같은 파일들 (rab은 열지 않는다)
+RUNNABLE = {".exe", ".bat", ".cmd", ".com", ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msi", ".msp",
+            ".scr", ".pif", ".lnk", ".url", ".reg", ".hta", ".cpl", ".jar", ".py", ".pyw", ".sh", ".appref-ms"}
 APPS = {"메모장": "notepad", "notepad": "notepad", "계산기": "calc", "calculator": "calc", "그림판": "mspaint",
         "탐색기": "explorer", "파일 탐색기": "explorer", "설정": "ms-settings:", "작업 관리자": "taskmgr"}
 
@@ -119,6 +122,8 @@ def open_thing(office, job, args):
         office.opener(APPS[target])
         return {"opened": target}
     path = office.files.existing(target)
+    if path.is_file() and path.suffix.lower() in RUNNABLE:
+        raise OfficeError("프로그램·스크립트 파일은 rab이 열지 않아요. 대표님이 직접 열어 주세요.")
     office.opener(str(path))
     return {"opened": str(path)}
 
