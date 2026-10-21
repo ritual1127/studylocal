@@ -70,3 +70,30 @@ def test_translate_needs_material_and_keeps_target_language():
     p = normalize_plan({"steps": ["literature", "translate"], "work_query": "어린 왕자", "target_lang": " 영어 "}, False)
     assert p.steps == ["literature", "translate"] and p.target_lang == "영어"
     assert normalize_plan({"steps": ["translate"]}, False).error.startswith("자료가 없어")
+
+# ---- 실측에서 작은 모델(4B)이 틀린 것들: 코드로 바로잡는다 ----
+def test_query_or_topic_without_its_source_step_gets_the_source():
+    p = normalize_plan({"steps": ["quiz"], "work_query": "운수 좋은 날"}, False)
+    assert p.steps == ["literature", "quiz"] and p.error is None
+    p = normalize_plan({"steps": ["cards"], "topic": "광합성"}, False)
+    assert p.steps == ["research", "cards"] and p.error is None
+
+def test_reference_words_mean_previous_material():
+    llm = lambda s, u, schema, **k: {"steps": ["cards", "cards"], "use_last": False}
+    p = route("방금 자료로 암기카드 만들어줘", has_files=False, llm=llm)
+    assert p.steps == ["cards"] and p.use_last is True and p.error is None
+    assert route("암기카드 만들어줘", has_files=False, llm=llm).error  # 가리키는 말이 없으면 되묻기
+
+def test_extra_analysis_dropped_unless_asked():
+    llm = lambda s, u, schema, **k: {"steps": ["quiz", "analysis"], "work_query": "운수 좋은 날"}
+    assert route("운수 좋은 날 가져와서 문제 5개 만들어줘", False, llm=llm).steps == ["literature", "quiz"]
+    assert route("운수 좋은 날 분석하고 문제 내줘", False, llm=llm).steps == ["literature", "analysis", "quiz"]
+
+def test_router_prompt_has_examples_for_questions():
+    from office.plan import ROUTER_SYSTEM
+    assert "이게 뭐야" not in ROUTER_SYSTEM and "광합성이 뭐야?" in ROUTER_SYSTEM
+
+def test_extra_study_plan_dropped_unless_asked():
+    llm = lambda s, u, schema, **k: {"steps": ["schedule", "plan"]}
+    assert route("내일 3시 수학 학원 일정 넣어줘", False, llm=llm).steps == ["schedule"]
+    assert route("기말고사 11월 20일인데 공부 계획 짜줘", False, llm=llm).steps == ["schedule", "plan"]
