@@ -234,3 +234,46 @@ def test_same_call_twice_is_flagged_not_repeated(make_agent_office):
     run(office, "광합성 검색")
     assert len(calls) == 1  # 같은 검색은 한 번만 실제로 한다
     assert "같은" in script.results("web_search")[-1]["note"]
+
+
+# ---- 되묻지 않기 ----
+def test_ask_back_gets_one_nudge_to_just_do_it(make_agent_office):
+    script = Script(say("어떤 과목을 원하시는지 알려주세요?"), call("status", what="today"), say("대표님, 오늘 할 일로 계획했습니다."))
+    office = make_agent_office(script)
+    job = run(office, "다음 주 공부 계획 짜줘")
+    nudge = script.seen[1][-1]
+    assert nudge["role"] == "user" and "되묻지" in nudge["content"]
+    assert job.reply == "대표님, 오늘 할 일로 계획했습니다."
+
+
+def test_second_ask_back_is_accepted(make_agent_office):
+    script = Script(say("무엇을 보낼까요?"), say("정말 무엇을 보낼지 몰라요?"))
+    office = make_agent_office(script)
+    job = run(office, "보내")
+    assert len(script.seen) == 2 and job.reply == "정말 무엇을 보낼지 몰라요?"  # 한 번만 재촉한다
+
+
+def test_study_plan_tool_and_missing_material_hint(make_agent_office):
+    script = Script(call("study_plan", goal="다음 주 수학 시험 대비"), call("do_work", outputs=["quiz"]), say("계획했습니다."))
+    office = make_agent_office(script)
+    run(office, "다음 주 공부 계획 짜고 문제도")
+    assert script.results("study_plan")[0]["added"] == 1 and any(t["text"] == "1단원" for t in office.planner.data["todos"])
+    assert "find_files" in script.results("do_work")[0]["error"]
+
+
+def test_do_work_uses_the_file_rab_just_read(make_agent_office, agent_home):
+    script = Script(call("read_file", path=str(agent_home / "Desktop" / "수학_프린트.pdf")), call("do_work", outputs=["quiz"]),
+                    say("문제를 만들었습니다."))
+    office = make_agent_office(script)
+    office.files.read_text = lambda path, limit=4000: "1단원 다항식"
+    job = run(office, "수학 프린트로 문제 만들어줘")
+    assert "quiz" in job.results and job.names == ["수학_프린트.pdf"] and "error" not in script.results("do_work")[0]
+
+
+def test_notify_only_when_asked_to_send(make_agent_office):
+    office = make_agent_office(Script(call("notify", to="phone", message="오늘은 흐림"), say("흐립니다.")))
+    run(office, "오늘 날씨 어때?")
+    assert office.notifier.to == []  # 묻기만 했으면 대답으로만
+    office.agent.llm = Script(call("notify", to="phone", message="오늘은 흐림"), say("보냈습니다."))
+    run(office, "날씨 폰으로 보내줘")
+    assert office.notifier.to == [("phone", "실장님", "오늘은 흐림")]

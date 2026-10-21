@@ -20,6 +20,11 @@ from office.literature import html_to_text
 from office.plan import OUTPUTS, STAFF_STEPS, normalize_plan
 
 MAX_TURNS = 8
+# 작은 모델이 일하지 않고 되묻는 말 (한 번은 "그냥 해" 하고 다시 시킨다)
+ASK_BACK = re.compile(r"\?\s*$|알려\s?주(세요|시면|실)|말씀해\s?주|원하시는지|주시면|할까요|드릴까요|무엇을 원하")
+SEND_WORDS = ("보내", "알려", "알림", "폰", "메시지", "문자", "전송", "pc로", "PC로", "톡")  # 알림은 보내라고 할 때만
+NUDGE = ("(되묻지 말고 지금 바로 해 주세요. 애매하면 가장 그럴듯하게 정하세요: 파일·프린트는 find_files로 찾거나 do_work의 use_last, "
+         "지역은 기억이 없으면 서울, 과목·수준은 기억이나 고등학생 기준. 도구로 끝까지 하고, 무엇으로 정했는지 보고할 때 한 줄로 알려 주세요.)")
 MAX_CALLS = 4  # 한 번에 부르는 도구 수
 RESULT_CHARS = 3000
 NAMES = {"manager": "실장님", "secretary": "비서", "deployer": "배포담당", "scanner": "스캐너", "librarian": "사서",
@@ -38,7 +43,12 @@ APPS = {"메모장": "notepad", "notepad": "notepad", "계산기": "calc", "calc
 RAB_SYSTEM = """너는 '실장님', 대표(ritual)의 AI 비서다 (이 앱 이름은 ritual's rab). 아이언맨의 자비스처럼 침착하고 정확하게, 시키는 일을 도구로 직접 실행한다.
 - 말로만 대답하지 말고 도구로 실제로 한다. 메시지 보내기(notify), 나중에 알리기(remind), 일정(add_schedule), 할 일 체크, 공부모드,
   파일 찾기·가져오기·열기, 새 파일 쓰기, 결재·중단(job_action), 설정 바꾸기 모두 도구가 있다.
+- **되묻지 않는다.** 애매하면 가장 그럴듯하게 정해서 바로 실행하고, 무엇으로 정했는지 보고할 때 한 줄로 알린다.
+  "이 프린트·그 파일"인데 첨부가 없으면 find_files로 대표님 폴더에서 찾거나 do_work의 use_last(방금 자료)를 쓴다.
 - "내 폰으로 ○○ 보내"처럼 보낼 말이 요청에 있으면 묻지 말고 바로 notify로 그 말을 보낸다.
+- notify는 대표님이 "보내·알려 줘"라고 할 때만 쓴다. 그냥 묻는 말엔 대답으로만 답한다.
+- 실제로 쓴 도구로 한 일만 보고한다. 하지 않은 일(팀에 맡김·파일 저장 등)을 했다고 말하지 않는다.
+- 공부 계획은 study_plan으로 짠다 (과목을 모르면 다가오는 시험·할 일·기억을 보고 정한다).
 - 파일은 find_files로 찾아 본 뒤 결과의 경로를 그대로 쓴다. 경로를 지어내지 않는다. 폴더 이름은 바탕화면·문서·다운로드처럼 써도 된다.
 - 노트·문제·암기카드·마인드맵·분석·번역·질문 답변 같은 결과물은 do_work로 직원 팀에게 맡긴다 (첨부 파일·가져온 파일은 자동으로 쓴다).
 - 오늘 일정·할 일·결재 현황을 물으면 status로 확인하고 사실만 말한다. 모르는 건 지어내지 않는다.
@@ -104,6 +114,8 @@ def _i(args: dict, key: str, default: int = 0) -> int:
       kind={**S, "description": "pdf·한글·워드·엑셀·ppt·사진·문서 등"}, days={**I, "description": "최근 며칠 안에 바뀐 파일만"})
 def find_files(office, job, args):
     found = office.files.find(_s(args, "query"), _s(args, "folder"), _s(args, "kind"), _i(args, "days"))
+    if found and office.agent:
+        office.agent.seen.append(found[0]["path"])
     return {"found": found} if found else {"found": [], "hint": "못 찾았어요. 다른 말이나 폴더로 다시 찾아 보세요."}
 
 
@@ -115,7 +127,10 @@ def list_folder(office, job, args):
 @tool("read_file", "파일 읽기", "문서·글자 파일 내용을 읽는다 (사진·스캔은 bring_file 뒤 do_work의 analysis로)", ("path",), path=S)
 def read_file(office, job, args):
     path = office.files.existing(_s(args, "path"))
-    return {"path": str(path), "text": office.files.read_text(path)}
+    text = office.files.read_text(path)
+    if office.agent:
+        office.agent.seen.append(str(path))  # 방금 읽은 파일 → do_work가 자료로 쓴다
+    return {"path": str(path), "text": text}
 
 
 @tool("bring_file", "가져오기", "파일을 이번 작업으로 가져온다 (보관함에서 열고 폰으로 받을 수 있고, 직원들이 읽을 수 있다)", ("path",), path=S)
@@ -184,15 +199,33 @@ def do_work(office, job, args):
            "question_count": count or 10, "card_count": count or 15, "target_lang": _s(args, "target_lang"),
            "use_last": args.get("use_last") is True, "title": _s(args, "title", 60)}
     plan = normalize_plan(raw, bool(job.files), bool(job.ref))
+    seen = [p for p in (office.agent.seen if office.agent else []) if Path(p).is_file()]
+    if plan.error and seen:  # 자료가 없다면서 방금 찾거나 읽은 파일이 있으면 그걸 가져와 쓴다
+        office.bring(job, Path(seen[-1]))
+        plan = normalize_plan(raw, True, bool(job.ref))
     if job.assignee in ("librarian", "researcher") and not outputs:  # 자료만 모으는 팀
         plan.steps = [s for s in plan.steps if s in ("literature", "research")] or plan.steps
     if plan.error:
-        return {"error": plan.error}
+        return {"error": plan.error + " → 되묻지 말고 find_files로 대표님 폴더에서 자료를 찾거나, use_last로 방금 자료를 써 보세요."}
     if not plan.steps:
         return {"error": "만들 결과물(outputs)을 골라 주세요."}
     office.run_plan(job, plan)
     status = "결재 대기" if job.outputs and not all(office.auto.get(s) for s in job.outputs) else "완료"
     return {"status": status, "title": job.title, "results": sorted(k for k in job.results if k != "text")}
+
+
+@tool("study_plan", "공부 계획", "시험·목표에 맞춰 날짜별 공부 할 일을 짜서 오늘 할 일·일정에 넣는다 (코치 팀)", ("goal",),
+      goal={**S, "description": "예: 다음 주 수학 시험 대비, 기말고사 11월 20일"})
+def study_plan(office, job, args):
+    goal = _s(args, "goal", 300) or job.text
+    today = office.planner.now().date()
+    exams = [e for e in office.planner.view()["events"] if e["kind"] == "시험" and e["date"] >= today.isoformat()]
+    office._set(job, "coach", "working", "공부 계획 짜볼게")
+    out = office.steps["plan"](goal, today, exams, office.material_of(job.id))
+    for todo in out["todos"]:
+        office.planner.add_todo(todo["text"], date=todo["date"])
+    office._set(job, "coach", "done", f"할 일 {len(out['todos'])}개로 계획 짰어!")
+    return {"added": len(out["todos"]), "first_days": out["todos"][:5], "coach": out.get("reply", "")}
 
 
 @tool("notify", "알림", "대표에게 시스템 알림으로 메시지를 보낸다", ("message",),
@@ -201,6 +234,8 @@ def notify(office, job, args):
     message = _s(args, "message", 300)
     if not message:
         raise OfficeError("보낼 말이 없어요.")
+    if not any(w in job.text for w in SEND_WORDS):
+        raise OfficeError("대표님이 보내라고 하지 않았어요. 알림 없이 대답으로만 알려 드리세요.")
     to = args.get("to") if args.get("to") in ("phone", "pc") else None
     errors = office.notifier.send("실장님", message, only=to)
     if errors:
@@ -424,18 +459,25 @@ class Agent:
         return "\n".join(lines)
 
     def run(self, job, text: str) -> str:
+        self.seen: list[str] = []  # 이번 지시에서 찾거나 읽은 파일
         self.done: dict = {}  # 이번 지시에서 이미 쓴 도구 (같은 값으로 또 부르면 다시 안 하고 알려 준다)
         messages = [{"role": "system", "content": RAB_SYSTEM + "\n\n" + self.context(job)}]
         for said, answered in self.office.recent_dialogue(job):  # 이어지는 대화: "아까 그거"를 알아듣게
             messages += [{"role": "user", "content": said}, {"role": "assistant", "content": answered}]
         messages.append({"role": "user", "content": text})
+        nudged = False
         for _ in range(MAX_TURNS):
             self.office.checkpoint(job)
             msg = self.llm(messages, self.specs())
             calls = [c for c in msg.get("tool_calls") or [] if isinstance(c, dict)]
             messages.append({"role": "assistant", "content": msg.get("content") or "", **({"tool_calls": calls} if calls else {})})
             if not calls:
-                return (msg.get("content") or "").strip() or "대표님, 처리했습니다."
+                reply = (msg.get("content") or "").strip()
+                if reply and not nudged and ASK_BACK.search(reply):
+                    nudged = True  # 한 번만: 그래도 되물으면 그 말을 대표님께 전한다
+                    messages.append({"role": "user", "content": NUDGE})
+                    continue
+                return reply or "대표님, 처리했습니다."
             for c in calls[:MAX_CALLS]:
                 fn = c.get("function") or {}
                 name, args = str(fn.get("name") or ""), fn.get("arguments") or {}
