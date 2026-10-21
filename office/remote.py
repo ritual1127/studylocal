@@ -38,11 +38,11 @@ def lan_addresses() -> list[str]:
     return [ip for ip in ips if private.match(ip)]
 
 
-def start_uvicorn(app_factory, host: str):
+def start_uvicorn(app_factory, host: str, port: int = REMOTE_PORT):
     """폰 서버를 다른 스레드에서 띄우고, 끄는 함수를 돌려준다."""
     import uvicorn
 
-    server = uvicorn.Server(uvicorn.Config(app_factory(), host=host, port=REMOTE_PORT, log_level="warning", access_log=False))
+    server = uvicorn.Server(uvicorn.Config(app_factory(), host=host, port=port, log_level="warning", access_log=False))
     thread = threading.Thread(target=server.run, daemon=True, name="office-remote")
     thread.start()
 
@@ -87,8 +87,8 @@ def start_cloudflared(on_url):
 
 class Remote:
     def __init__(self, path: Path, *, start_server, start_tunnel=start_cloudflared, notify=lambda title, body: None,
-                 lan=lan_addresses):
-        self.path = Path(path)
+                 lan=lan_addresses, port: int = REMOTE_PORT):
+        self.path, self.port = Path(path), port
         self.start_server, self.start_tunnel, self.notify, self.lan = start_server, start_tunnel, notify, lan
         self.lock = threading.RLock()
         try:
@@ -162,7 +162,7 @@ class Remote:
         if self.mode == "tunnel":
             bases = [self.tunnel_url] if self.tunnel_url else []
         elif self.mode == "lan":
-            bases = [f"http://{ip}:{REMOTE_PORT}" for ip in self.lan()]
+            bases = [f"http://{ip}:{self.port}" for ip in self.lan()]
         else:
             bases = []
         return {"mode": self.mode, "urls": bases, "link": f"{bases[0]}/m?k={self.token}" if bases else "",

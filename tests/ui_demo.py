@@ -136,6 +136,9 @@ def make_demo_office(root: Path, seed: bool = True) -> Office:
     return office
 
 
+PHONE_PORT = 8798
+
+
 def serve(office: Office, port: int) -> threading.Thread:
     """가짜 사무실을 port에서 띄운다 (모델 올리기는 건너뜀)."""
     import uvicorn
@@ -144,9 +147,9 @@ def serve(office: Office, port: int) -> threading.Thread:
 
     server.LOCAL.update({f"127.0.0.1:{port}", f"localhost:{port}"})
     llm.warm = lambda: None
-    # 폰 서버는 이 PC 안(127.0.0.1)에서만 연다: 데모가 방화벽 창을 띄우거나 인터넷에 열리지 않게
-    remote = Remote(office.root / "remote.json",
-                    start_server=lambda host: start_uvicorn(lambda: server.create_remote_app(office, remote), "127.0.0.1"),
+    # 폰 서버는 이 PC 안(127.0.0.1)에서만, 진짜 사무실(8766)과 다른 포트로: 방화벽 창·인터넷 노출·포트 충돌 없게
+    remote = Remote(office.root / "remote.json", port=PHONE_PORT,
+                    start_server=lambda host: start_uvicorn(lambda: server.create_remote_app(office, remote), "127.0.0.1", PHONE_PORT),
                     start_tunnel=lambda on_url: (on_url("https://demo-tunnel.trycloudflare.com"), lambda: None)[1],
                     notify=lambda title, body: office.notifier.send(title, body), lan=lambda: ["127.0.0.1"])
     app = server.create_app(office, remote=remote)

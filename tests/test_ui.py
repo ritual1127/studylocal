@@ -222,7 +222,7 @@ def test_phone_page_with_token(page, browser, office):
     expect(link).to_contain_text("/m?k=")
     expect(pane(page, 1).locator("img.qr")).to_be_visible()
     phone = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True).new_page()
-    phone.goto("http://127.0.0.1:8766/m")
+    phone.goto("http://127.0.0.1:8798/m")
     expect(phone.locator("h1")).to_have_text("잠겨 있어")
     phone.goto(link.inner_text())
     expect(phone.locator("#status")).to_have_text(re.compile("^PC (연결됨|AI 꺼짐)"))
