@@ -33,6 +33,8 @@ RAB_SYSTEM = """너는 ritual's rab, 대표(ritual)의 AI 비서다. 아이언�
 - 노트·문제·암기카드·마인드맵·분석·번역·질문 답변 같은 결과물은 do_work로 직원 팀에게 맡긴다 (첨부 파일·가져온 파일은 자동으로 쓴다).
 - 오늘 일정·할 일·결재 현황을 물으면 status로 확인하고 사실만 말한다. 모르는 건 지어내지 않는다.
 - 지우기·옮기기·이름 바꾸기·덮어쓰기·명령 실행은 rab이 할 수 없다. 그럴 땐 할 수 없다고 말하고 open_thing으로 그 폴더를 열어 준다.
+- 대표님이 알려 준 자기 정보·습관·부탁("앞으로 ~해줘", "기억해")은 remember로 기억한다. "잊어"라고 하면 forget.
+  아래 '기억하는 것'과 앞선 대화를 늘 참고해서, 같은 걸 다시 묻지 않는다.
 - 일이 끝나면 대표님께 존댓말로 한두 문장 보고한다 ("대표님, …했습니다")."""
 
 
@@ -266,6 +268,20 @@ def change_setting(office, job, args):
     raise OfficeError("바꿀 수 없는 설정이에요.")
 
 
+@tool("remember", "기억하기", "대표님에 대해 앞으로도 알고 있어야 할 것을 기억한다 (이름·학년·일정 습관·좋아하는 방식·부탁)", ("text",),
+      text={**S, "description": "기억할 한 문장"})
+def remember(office, job, args):
+    return {"remembered": office.memory.add(_s(args, "text", 300))["text"]}
+
+
+@tool("forget", "잊기", "기억한 것 중 그 말이 들어간 것을 지운다", ("text",), text=S)
+def forget(office, job, args):
+    gone = office.memory.forget(_s(args, "text", 100))
+    if not gone:
+        raise OfficeError("그런 기억이 없어요.")
+    return {"forgot": [f["text"] for f in gone]}
+
+
 @tool("wiki", "위키 조사", "위키백과에서 주제를 찾아 요약을 본다 (사실 확인용)", ("topic",), topic=S)
 def wiki(office, job, args):
     m = office.steps["research"](_s(args, "topic", 100), say=lambda msg: None)
@@ -290,10 +306,16 @@ class Agent:
             lines.append("대표가 고른 이전 자료가 있다 (do_work가 알아서 씀)")
         if job.assignee:
             lines.append(f"대표가 이 일을 {NAMES[job.assignee]} 팀에 맡겼다. 결과물은 그 팀 일로만 만든다.")
+        remembered = self.office.memory.prompt()
+        if remembered:
+            lines.append("대표님에 대해 기억하는 것:\n" + remembered)
         return "\n".join(lines)
 
     def run(self, job, text: str) -> str:
-        messages = [{"role": "system", "content": RAB_SYSTEM + "\n\n" + self.context(job)}, {"role": "user", "content": text}]
+        messages = [{"role": "system", "content": RAB_SYSTEM + "\n\n" + self.context(job)}]
+        for said, answered in self.office.recent_dialogue(job):  # 이어지는 대화: "아까 그거"를 알아듣게
+            messages += [{"role": "user", "content": said}, {"role": "assistant", "content": answered}]
+        messages.append({"role": "user", "content": text})
         for _ in range(MAX_TURNS):
             self.office.checkpoint(job)
             msg = self.llm(messages, self.specs())

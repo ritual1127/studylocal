@@ -195,3 +195,11 @@ def test_rab_permissions_endpoint(make_office, tmp_path, monkeypatch):
     assert p["write"] is False and p["extra"] == [str(extra)] and office.files.allowed(extra)
     assert c.post("/api/permissions", json={"extra": [str(tmp_path / "없는 폴더")]}).status_code == 400
     assert c.post("/api/permissions", json={"read": "yes"}).status_code == 400
+
+def test_memory_endpoints(make_office):
+    office = make_office()
+    c = client_for(office)
+    fact = c.post("/api/memory", json={"text": "대표님은 아침형"}).json()
+    assert c.get("/api/memory").json()["facts"][0]["text"] == "대표님은 아침형"
+    assert c.post(f"/api/memory/{fact['id']}/delete").json() == {"ok": True} and c.get("/api/memory").json()["facts"] == []
+    assert c.post("/api/memory", json={"text": " "}).status_code == 400

@@ -22,6 +22,7 @@ from office.config import OUTPUT
 from office.deploy import deploy_site, publish_quiz
 from office.literature import fetch_literature
 from office.llm import clip
+from office.memory import Memory
 from office.mindmap import make_mindmap_page
 from office.note import make_pdf
 from office.notify import Notifier
@@ -149,6 +150,7 @@ class Office:
         self.notifier = notifier or Notifier(self.root / "settings.json")
         self.files = files or files_from(load_permissions(self.root / "permissions.json"), self.root)
         self.stopping: set[str] = set()  # [중단]을 누른, 일하는 중인 작업
+        self.memory = Memory(self.root / "memory.json")  # 실장님이 대표님에 대해 기억하는 것
         self.jobs: dict[str, Job] = {}
         self.staff = {role: {"name": name, "state": "idle", "say": ""} for role, name in ROLES.items()}
         self.active = "manager"  # 지금 일하는 직원 (에러가 나면 이 직원 책상에 빨간불)
@@ -651,6 +653,13 @@ class Office:
             job.names.append(copy.name)
             job.results.setdefault("files", []).append({"name": copy.name, "url": url})
         return {"brought": copy.name, "url": url, "size": copy.stat().st_size}
+
+    def recent_dialogue(self, current: Job, n: int = 6) -> list[tuple[str, str]]:
+        """이어지는 대화: 지금 작업 앞의 지시·대답 n개 (오래된 것부터)."""
+        with self.lock:
+            before = sorted((j for j in self.jobs.values() if j.id != current.id and j.no < current.no and j.reply),
+                            key=lambda j: (j.no, j.id))[-n:]
+        return [(j.text[:500], j.reply[:500]) for j in before]
 
     def today_summary(self) -> dict:
         v = self.planner.view()

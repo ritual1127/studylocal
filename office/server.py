@@ -195,6 +195,20 @@ def create_app(office: Office, remote: Remote | None = None) -> FastAPI:
             return {"count": len(active)}
         return {"count": office.reset(what)}
 
+    @app.get("/api/memory")
+    def memory():
+        return {"facts": office.memory.facts()}
+
+    @app.post("/api/memory")
+    def add_memory(body: dict = Body(...)):
+        return office.memory.add(str(body.get("text") or ""))
+
+    @app.post("/api/memory/{fact_id}/delete")
+    def delete_memory(fact_id: str):
+        if not office.memory.forget(fact_id):
+            raise OfficeError("그런 기억이 없어요.")
+        return {"ok": True}
+
     @app.get("/api/permissions")
     def permissions():
         return _permissions_view(office)

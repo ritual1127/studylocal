@@ -160,3 +160,27 @@ def test_open_refuses_programs_and_scripts(make_agent_office, agent_home):
     run(office, "다운로드 설치 파일 열어줘")
     errors = [json.loads(m["content"]).get("error", "") for m in script.seen[-1] if m.get("role") == "tool"]
     assert office.opened == [] and len(errors) == 4 and all("직접" in e for e in errors)
+
+
+# ---- 기억 · 이어지는 대화 ----
+def test_remembered_facts_and_recent_dialogue_reach_the_next_command(make_agent_office):
+    script = Script(call("remember", text="대표님은 고2, 수학 학원은 화요일"), say("기억해 둘게요."), say("화요일이에요."))
+    office = make_agent_office(script)
+    run(office, "나 고2고 수학 학원은 화요일이야, 기억해")
+    assert [f["text"] for f in office.memory.facts()] == ["대표님은 고2, 수학 학원은 화요일"]
+    run(office, "학원 무슨 요일이라 했지?")
+    second = script.seen[-1]
+    assert "수학 학원은 화요일" in second[0]["content"]  # 기억이 대화 맨 앞에
+    roles = [m["role"] for m in second[:4]]
+    assert roles == ["system", "user", "assistant", "user"] and second[1]["content"] == "나 고2고 수학 학원은 화요일이야, 기억해"
+    assert second[2]["content"] == "기억해 둘게요." and second[3]["content"] == "학원 무슨 요일이라 했지?"
+
+
+def test_forget_tool(make_agent_office):
+    script = Script(call("forget", text="학원"), say("잊었어요."))
+    office = make_agent_office(script)
+    office.memory.add("수학 학원은 화요일")
+    office.memory.add("좋아하는 과목은 과학")
+    run(office, "학원 얘기는 잊어")
+    assert [f["text"] for f in office.memory.facts()] == ["좋아하는 과목은 과학"]
+    assert script.results("forget")[0]["forgot"] == ["수학 학원은 화요일"]
