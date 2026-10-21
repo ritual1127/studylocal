@@ -16,7 +16,9 @@ from office import OfficeError
 from office.config import HOST, PORT, WEB
 
 AUMID = "Ritual.StudyOffice"
-DEFAULTS = {"pc": True, "phone": False, "topic": "", "server": "https://ntfy.sh", "job_done": True, "briefing": "07:30"}
+DEFAULTS = {"pc": True, "phone": False, "topic": "", "server": "https://ntfy.sh", "job_done": True, "briefing": "07:30",
+            "ai": "fast"}
+AI_MODES = ("fast", "careful")
 TIME = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
 
 # 글자는 XML로 이스케이프해서 환경 변수로 넘긴다 → 명령어 주입 없음
@@ -85,6 +87,10 @@ class Notifier:
                 if briefing and not TIME.fullmatch(briefing):
                     raise OfficeError("아침 브리핑 시각은 07:30처럼 써줘.")
                 new["briefing"] = briefing
+            if "ai" in changes:
+                if changes["ai"] not in AI_MODES:
+                    raise OfficeError("AI 모드는 빠름·꼼꼼 중 하나야.")
+                new["ai"] = changes["ai"]
             if changes.get("new_topic") or (new["phone"] and not new["topic"]):
                 new["topic"] = "ritual-" + secrets.token_urlsafe(16)  # 주제 이름 = 비밀번호 역할
             self.settings = new

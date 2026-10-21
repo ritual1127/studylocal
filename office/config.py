@@ -9,7 +9,10 @@ LOGO = ROOT / "assets" / "ritual-wordmark.png"
 DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "ritual-office"
 
 OLLAMA_URL = "http://127.0.0.1:11434"
-MODEL = os.environ.get("RITUAL_MODEL", "qwen3.5:latest")
+# 빠름 = 4.2B, GPU에 다 올라감 (측정 84 tok/s) · 꼼꼼 = 9.7B (GPU에 다 올리면 55 tok/s, Ollama 기본 배치면 37 tok/s)
+MODELS = {"fast": os.environ.get("RITUAL_FAST_MODEL", "qwen3.5:4b"),
+          "careful": os.environ.get("RITUAL_MODEL", "qwen3.5:latest")}
+KEEP_ALIVE = "30m"
 NUM_CTX = 16384
 MAX_INPUT_CHARS = 8000
 MAX_IMAGE_SIDE = 1600

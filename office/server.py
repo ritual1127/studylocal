@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from office import OfficeError, llm
-from office.config import HOST, MODEL, PORT, WEB
+from office.config import HOST, PORT, WEB
 from office.jobs import Office
 
 # Windows 레지스트리가 .js를 text/plain으로 잡으면 모듈 스크립트가 막힌다
@@ -60,7 +60,7 @@ def create_app(office: Office) -> FastAPI:
 
     @app.get("/api/state")
     def state():
-        return {**office.snapshot(), "ollama": llm.is_up(), "model": MODEL}
+        return {**office.snapshot(), "ollama": llm.is_up(), "model": llm.model()}
 
     @app.post("/api/jobs/{job_id}/deploy")
     def deploy(job_id: str):

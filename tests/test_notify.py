@@ -52,3 +52,10 @@ def test_channel_error_is_reported_not_raised(tmp_path):
     n.update({"phone": True, "pc": False})
     assert n.send("a", "b") == ["폰: 인터넷 연결을 확인해줘."]
     assert n.history[0]["title"] == "a" and n.history[0]["errors"]
+
+
+def test_ai_mode_setting(tmp_path):
+    n, _ = make(tmp_path)
+    assert n.settings["ai"] == "fast" and n.update({"ai": "careful"})["ai"] == "careful"
+    with pytest.raises(OfficeError):
+        n.update({"ai": "turbo"})
