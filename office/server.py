@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from office import OfficeError, llm
-from office.config import MODEL, WEB
+from office.config import HOST, MODEL, PORT, WEB
 from office.jobs import Office
 
 # Windows 레지스트리가 .js를 text/plain으로 잡으면 모듈 스크립트가 막힌다
@@ -19,6 +19,8 @@ mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("font/woff2", ".woff2")
 
 SAFE_SUFFIX = re.compile(r"\.[a-z0-9]{1,5}")
+# 다른 웹사이트가 내 PC의 사무실에 명령을 보내거나(CSRF) 몰래 읽지(DNS rebinding) 못하게
+LOCAL = {f"{HOST}:{PORT}", f"localhost:{PORT}"}
 
 
 def _error(message: str, status: int) -> JSONResponse:
@@ -33,6 +35,13 @@ def create_app(office: Office) -> FastAPI:
         yield
 
     app = FastAPI(lifespan=lifespan)
+
+    @app.middleware("http")
+    async def only_local(request, call_next):
+        origin = request.headers.get("origin")
+        if request.headers.get("host") not in LOCAL or (origin and origin.removeprefix("http://") not in LOCAL):
+            return _error("사무실 밖에서 온 요청이라 막았어.", 403)
+        return await call_next(request)
 
     @app.post("/api/command")
     async def command(text: str = Form(""), files: list[UploadFile] = File(default=[])):
