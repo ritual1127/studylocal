@@ -127,15 +127,21 @@ class Remote:
                 self._tell_phone()
             return self.status()
 
-    def apply(self) -> None:
-        """지금 모드대로 폰 서버와 터널을 켜고 끈다 (사무실을 켤 때도 부른다)."""
+    def close(self) -> None:
+        """폰 서버·터널 프로그램을 끈다. 모드는 그대로 둬서 다음에 켤 때 다시 연다 (퇴근할 때)."""
         with self.lock:
             for stop in reversed(self._stops):
                 try:
                     stop()
                 except Exception:
                     traceback.print_exc()
-            self._stops, self.tunnel_url, self.error = [], "", ""
+            self._stops, self.tunnel_url = [], ""
+
+    def apply(self) -> None:
+        """지금 모드대로 폰 서버와 터널을 켜고 끈다 (사무실을 켤 때도 부른다)."""
+        with self.lock:
+            self.close()
+            self.error = ""
             if self.mode == "off":
                 return
             try:

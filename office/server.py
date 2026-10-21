@@ -257,6 +257,7 @@ def create_app(office: Office, remote: Remote | None = None) -> FastAPI:
 
     @app.post("/api/shutdown")
     def shutdown():
+        remote.close()  # 터널 프로그램(cloudflared)이 혼자 남지 않게
         threading.Timer(0.5, os._exit, [0]).start()
         return {"ok": True}
 

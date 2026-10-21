@@ -139,3 +139,16 @@ def test_pc_settings_turn_phone_access_on_and_show_qr(make_office, tmp_path):
     qr = c.get("/api/remote/qr")
     assert qr.status_code == 200 and qr.headers["content-type"].startswith("image/svg+xml")
     assert c.post("/api/remote", json={"mode": "moon"}).status_code == 400
+
+
+def test_shutdown_stops_tunnel_but_keeps_mode(make_office, tmp_path, monkeypatch):
+    office = make_office()
+    remote, s = make_remote(tmp_path)
+    remote.update({"mode": "tunnel"})
+    exits = []
+    monkeypatch.setattr("office.server.threading.Timer", lambda delay, fn, args: type("T", (), {"start": lambda self: exits.append(args)})())
+    c = TestClient(create_app(office, remote=remote), base_url=LOCAL)
+    assert c.post("/api/shutdown").json() == {"ok": True} and exits == [[0]]
+    assert ("tunnel-stop",) in s.calls and ("server-stop", "127.0.0.1") in s.calls  # 퇴근하면 터널 프로그램도 같이 끈다
+    again, _ = make_remote(tmp_path)
+    assert again.mode == "tunnel"  # 다음에 켤 때는 다시 연다
