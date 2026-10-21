@@ -218,6 +218,36 @@ def load_permissions(path: Path) -> dict:
     return {**perms, "extra": extra, "off": off}
 
 
+def check_permissions(changes: dict, current: dict, folders: dict[str, Path]) -> dict:
+    """설정 화면에서 온 값 검사. extra = 더 허용할 폴더(있는 폴더만, AppData 같은 곳은 안 됨), off = 뺄 기본 폴더."""
+    new = dict(current)
+    for key in PERM_NAMES:
+        if key in changes:
+            if not isinstance(changes[key], bool):
+                raise OfficeError("켜기/끄기 값이 이상해요.")
+            new[key] = changes[key]
+    if "extra" in changes:
+        extra = []
+        for raw in changes["extra"] if isinstance(changes["extra"], list) else []:
+            path = Path(str(raw)).expanduser()
+            if not path.is_dir():
+                raise OfficeError(f"'{raw}' 폴더가 없어요.")
+            path = path.resolve()
+            if any(part.lower() in BLOCKED for part in path.parts) or len(path.parts) <= 1:
+                raise OfficeError(f"'{raw}'은(는) 시스템·숨김 폴더라 허용할 수 없어요.")
+            extra.append(str(path))
+        new["extra"] = sorted(set(extra))
+    if "off" in changes:
+        new["off"] = sorted({k for k in changes["off"] if k in folders}) if isinstance(changes["off"], list) else []
+    return new
+
+
+def save_permissions(path: Path, settings: dict) -> None:
+    tmp = Path(path).with_suffix(".tmp")
+    tmp.write_text(json.dumps(settings, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(path)
+
+
 def files_from(settings: dict, output: Path, folders: dict[str, Path] | None = None) -> Files:
     folders = default_folders() if folders is None else folders
     roots = [p for key, p in folders.items() if key not in settings["off"]] + [Path(p) for p in settings["extra"] if Path(p).exists()]

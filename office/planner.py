@@ -106,6 +106,13 @@ class Planner:
             self._save()
             return dict(todo)
 
+    def clear_done(self) -> int:
+        with self.lock:
+            before = len(self.data["todos"])
+            self.data["todos"] = [t for t in self.data["todos"] if not t["done"]]
+            self._save()
+            return before - len(self.data["todos"])
+
     def delete_todo(self, todo_id: str) -> None:
         with self.lock:
             self.data["todos"].remove(self._find("todos", todo_id))

@@ -145,3 +145,53 @@ def test_startup_toggle(make_office, monkeypatch):
     assert c.get("/api/startup").json() == {"on": False}
     assert c.post("/api/startup", json={"on": True}).json() == {"on": True} and state["on"] is True
     assert c.post("/api/startup", json={"on": "yes"}).status_code == 400
+
+
+# ---- 편의 기능 · 히스토리 · 초기화 · rab 권한 ----
+def test_job_buttons_cancel_star_rename_zip(make_office):
+    office = make_office()
+    c = client_for(office)
+    j = c.post("/api/command", data={"text": "PDF로"}, files=upload()).json()["job_id"]
+    assert c.post(f"/api/jobs/{j}/cancel").json() == {"ok": True, "state": "cancelled"}
+    office.run_next()
+    assert office.jobs[j].status == "cancelled"
+    assert c.post(f"/api/jobs/{j}/star").json() == {"star": True}
+    assert c.post(f"/api/jobs/{j}/rename", json={"title": "새 제목"}).json() == {"ok": True} and office.jobs[j].title == "새 제목"
+    z = c.get(f"/api/jobs/{j}/zip")
+    assert z.status_code == 200 and z.headers["content-type"] == "application/zip"
+
+def test_history_endpoint_pages_and_filters(make_office):
+    office = make_office()
+    c = client_for(office)
+    for _ in range(3):
+        c.post("/api/command", data={"text": "PDF로"}, files=upload())
+        office.run_next()
+    h = c.get("/api/history", params={"limit": 2}).json()
+    assert h["total"] == 3 and len(h["jobs"]) == 2 and h["more"] is True and h["counts"]["review"] == 3
+    assert c.get("/api/history", params={"q": "없는말"}).json()["total"] == 0
+
+def test_reset_endpoint(make_office):
+    office = make_office()
+    c = client_for(office)
+    office.planner.add_todo("끝낸 일")
+    office.planner.update_todo(office.planner.data["todos"][0]["id"], {"done": True})
+    office.planner.add_todo("남은 일")
+    assert c.post("/api/reset", json={"what": "todos"}).json() == {"count": 1}
+    assert [t["text"] for t in office.planner.data["todos"]] == ["남은 일"]
+    assert c.post("/api/reset", json={"what": "staff"}).json() == {"count": 14}
+    assert c.post("/api/reset", json={"what": "nope"}).status_code == 400
+
+def test_rab_permissions_endpoint(make_office, tmp_path, monkeypatch):
+    office = make_office()
+    c = client_for(office)
+    p = c.get("/api/permissions").json()
+    assert p["read"] is True and p["write"] is True and "Desktop" in p["folders"] or p["folders"] == {}
+    extra = tmp_path / "학교 자료"
+    extra.mkdir()
+    assert "시스템" in c.post("/api/permissions", json={"extra": [str(extra)]}).json()["error"]  # pytest 임시 폴더는 AppData 아래
+    from office import tools
+    monkeypatch.setattr(tools, "BLOCKED", tools.BLOCKED - {"appdata"})
+    p = c.post("/api/permissions", json={"write": False, "extra": [str(extra)]}).json()
+    assert p["write"] is False and p["extra"] == [str(extra)] and office.files.allowed(extra)
+    assert c.post("/api/permissions", json={"extra": [str(tmp_path / "없는 폴더")]}).status_code == 400
+    assert c.post("/api/permissions", json={"read": "yes"}).status_code == 400

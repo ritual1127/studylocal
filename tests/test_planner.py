@@ -135,3 +135,11 @@ def test_starting_focus_again_keeps_the_running_minutes(tmp_path):
     p.start_focus(25, "영어")
     v = p.view()
     assert v["stats"]["today"] == 20 and v["focus"]["task"] == "영어"
+
+
+def test_clear_done_todos(tmp_path):
+    p, _ = make(tmp_path)
+    a = p.add_todo("끝")
+    p.add_todo("남음")
+    p.update_todo(a["id"], {"done": True})
+    assert p.clear_done() == 1 and [t["text"] for t in p.view()["todos"]] == ["남음"]

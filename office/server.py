@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from office import OfficeError, llm, startup
+from office import OfficeError, llm, startup, tools
 from office.config import HOST, MAX_UPLOAD, PORT, VERSION, WEB
 from office.jobs import Office
 from office.plan import OUTPUTS
@@ -78,6 +78,19 @@ async def _take_command(office: Office, text: str, ref: str, files: list[UploadF
         names.append(Path(upload.filename.replace('\\', "/")).name[:80])
     office.submit(job_id, text.strip()[:4000], saved, ref=ref, names=names)
     return {"job_id": job_id}
+
+
+def _zip_response(office: Office, job_id: str):
+    path = office.zip_job(job_id)
+    job = office.jobs[job_id]
+    name = re.sub(r'[\\/:*?"<>|]+', " ", f"No.{job.no:04d} {job.title or job.text[:20]}").strip()
+    return FileResponse(path, media_type="application/zip", filename=f"{name}.zip", background=BackgroundTask(os.unlink, path))
+
+
+def _permissions_view(office: Office) -> dict:
+    saved = tools.load_permissions(office.root / "permissions.json")
+    return {**saved, "folders": {k: str(v) for k, v in office.files.folders.items()},
+            "roots": [str(r) for r in office.files.roots]}
 
 
 def create_app(office: Office, remote: Remote | None = None) -> FastAPI:
@@ -144,6 +157,55 @@ def create_app(office: Office, remote: Remote | None = None) -> FastAPI:
     def delete(job_id: str):
         office.delete(job_id)
         return {"ok": True}
+
+    @app.post("/api/jobs/{job_id}/cancel")
+    def cancel(job_id: str):
+        return {"ok": True, "state": office.cancel(job_id)}
+
+    @app.post("/api/jobs/{job_id}/star")
+    def star(job_id: str):
+        return {"star": office.star(job_id)}
+
+    @app.post("/api/jobs/{job_id}/rename")
+    def rename(job_id: str, body: dict = Body(...)):
+        office.rename(job_id, str(body.get("title") or ""))
+        return {"ok": True}
+
+    @app.get("/api/jobs/{job_id}/zip")
+    def job_zip(job_id: str):
+        return _zip_response(office, job_id)
+
+    @app.get("/api/history")
+    def history(q: str = "", status: str = "", star: bool = False, offset: int = 0, limit: int = 30):
+        return office.history(q, status, star, offset, limit)
+
+    @app.post("/api/reset")
+    def reset(body: dict = Body(...)):
+        what = body.get("what")
+        if what == "todos":
+            return {"count": office.planner.clear_done()}
+        if what == "settings":
+            llm.mode = office.notifier.reset()["ai"]
+            return {"count": 1}
+        if what == "stop":  # 대기·진행 중 전부 멈추기
+            with office.lock:
+                active = [j.id for j in office.jobs.values() if j.status in ("queued", "running", "revising")]
+            for job_id in active:
+                office.cancel(job_id)
+            return {"count": len(active)}
+        return {"count": office.reset(what)}
+
+    @app.get("/api/permissions")
+    def permissions():
+        return _permissions_view(office)
+
+    @app.post("/api/permissions")
+    def set_permissions(body: dict = Body(...)):
+        path = office.root / "permissions.json"
+        new = tools.check_permissions(body, tools.load_permissions(path), office.files.folders)
+        tools.save_permissions(path, new)
+        office.files = tools.files_from(new, office.root, office.files.folders)
+        return _permissions_view(office)
 
     @app.post("/api/jobs/{job_id}/open")
     def open_folder(job_id: str):
@@ -344,6 +406,14 @@ def create_remote_app(office: Office, remote: Remote) -> FastAPI:
     def phone_reject(job_id: str, body: dict = Body(default={})):
         office.reject(job_id, str(body.get("comment") or ""))
         return {"ok": True}
+
+    @app.post("/api/m/jobs/{job_id}/cancel")
+    def phone_cancel(job_id: str):
+        return {"ok": True, "state": office.cancel(job_id)}
+
+    @app.get("/api/m/jobs/{job_id}/zip")
+    def phone_zip(job_id: str):
+        return _zip_response(office, job_id)
 
     @app.post("/api/m/todos/{todo_id}")
     def phone_todo(todo_id: str, body: dict = Body(...)):

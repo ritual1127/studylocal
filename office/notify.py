@@ -107,6 +107,13 @@ class Notifier:
             tmp.replace(self.path)
             return dict(new)
 
+    def reset(self) -> dict:
+        """설정 기본값으로 (폰 주제·서버는 남겨서 다시 켜면 구독이 그대로)."""
+        keep = {"topic": self.settings["topic"], "server": self.settings["server"]}
+        with self.lock:
+            self.settings = {**DEFAULTS, **keep}
+        return self.update({})
+
     def _pc(self, title: str, body: str, reminder: bool) -> None:
         if not self.registered:
             self.register()
