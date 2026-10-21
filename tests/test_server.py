@@ -28,3 +28,7 @@ def test_output_files_are_served(make_office, tmp_path):
     (tmp_path / "jobs" / "x").mkdir(parents=True)
     (tmp_path / "jobs" / "x" / "note.pdf").write_bytes(b"%PDF")
     assert client.get("/files/jobs/x/note.pdf").content == b"%PDF"
+
+def test_index_served(make_office):
+    r = TestClient(create_app(make_office())).get("/")
+    assert r.status_code == 200 and "공부 사무실" in r.text and 'src="app.js"' in r.text

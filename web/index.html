@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ritual의 공부 사무실</title>
+  <link rel="icon" href="icon.ico">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header class="top panel">
+      <img class="logo" src="logo-pixel.png" alt="ritual" onerror="this.hidden = true">
+      <h1>공부 사무실</h1>
+      <span id="status" class="status">연결 중…</span>
+      <span id="model" class="model"></span>
+      <button id="quit" class="btn" type="button">퇴근</button>
+    </header>
+
+    <main id="office" class="office panel" aria-label="사무실"></main>
+
+    <aside class="vault panel">
+      <h2>결과 보관함</h2>
+      <div id="jobs" class="jobs"></div>
+    </aside>
+
+    <section class="log panel">
+      <h2>업무 일지</h2>
+      <ol id="log"></ol>
+    </section>
+
+    <form id="bar" class="bar panel">
+      <p id="barError" class="bar-error" role="alert"></p>
+      <div id="chips" class="chips"></div>
+      <textarea id="text" name="text" rows="2" aria-label="명령"
+        placeholder="예) 이 프린트 예쁘게 PDF로 만들어줘 / 운수 좋은 날 가져와서 문제 10개 만들어줘"></textarea>
+      <button id="attach" class="btn alt" type="button">첨부</button>
+      <input id="pick" type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" multiple hidden>
+      <button id="send" class="btn" type="submit">보내기</button>
+    </form>
+  </div>
+
+  <div id="drop" class="drop" hidden>여기에 놓으면 첨부돼</div>
+  <div id="down" class="down" hidden>
+    <p id="downMsg">사무실 서버가 꺼졌어</p>
+    <small>바탕화면의 공부 사무실 아이콘으로 다시 켜줘</small>
+  </div>
+</body>
+</html>
