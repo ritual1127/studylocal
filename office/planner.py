@@ -141,6 +141,7 @@ class Planner:
         running = {"kind": kind, "task": " ".join(str(task or "").split())[:100], "minutes": minutes,
                    "start": start.isoformat(), "end": (start + dt.timedelta(minutes=minutes)).isoformat()}
         with self.lock:
+            self._end_running()  # 켜져 있던 공부모드는 공부한 만큼 기록하고 바꾼다
             self.data["focus"]["running"] = running
             self._save()
         return dict(running)
@@ -149,15 +150,21 @@ class Planner:
         if running["kind"] == "focus" and minutes >= 1:
             self.data["focus"]["log"].append({"date": running["start"][:10], "minutes": minutes, "task": running["task"]})
 
+    def _end_running(self) -> int:
+        running = self.data["focus"]["running"]
+        if not running:
+            return 0
+        elapsed = self.now() - dt.datetime.fromisoformat(running["start"])
+        minutes = min(running["minutes"], int(elapsed.total_seconds() // 60))
+        self._log_focus(running, minutes)
+        self.data["focus"]["running"] = None
+        return minutes
+
     def stop_focus(self) -> int:
         with self.lock:
-            running = self.data["focus"]["running"]
-            if not running:
+            if not self.data["focus"]["running"]:
                 return 0
-            elapsed = self.now() - dt.datetime.fromisoformat(running["start"])
-            minutes = min(running["minutes"], int(elapsed.total_seconds() // 60))
-            self._log_focus(running, minutes)
-            self.data["focus"]["running"] = None
+            minutes = self._end_running()
             self._save()
             return minutes
 

@@ -126,3 +126,12 @@ def test_timed_todo_reminds_unless_done(tmp_path):
     clock.set("2026-10-21 19:00:10")
     assert titles(p.due()) == ["할 일 시간이야 단어 시험 공부"]
     assert a["id"]
+
+
+def test_starting_focus_again_keeps_the_running_minutes(tmp_path):
+    p, clock = make(tmp_path)
+    p.start_focus(50, "수학")
+    clock.set("2026-10-21 09:20")
+    p.start_focus(25, "영어")
+    v = p.view()
+    assert v["stats"]["today"] == 20 and v["focus"]["task"] == "영어"

@@ -18,7 +18,7 @@ def test_state_lists_staff_and_jobs(make_office):
     client = TestClient(create_app(make_office()), base_url=BASE)
     client.post("/api/command", data={"text": "운수 좋은 날 문제"})
     s = client.get("/api/state").json()
-    assert set(s["staff"]) == {"manager", "scanner", "librarian", "designer", "examiner", "deployer"}
+    assert len(s["staff"]) == 14 and {"manager", "analyst", "translator", "coach"} <= set(s["staff"])
     assert s["jobs"][0]["status"] == "queued" and isinstance(s["ollama"], bool) and s["model"]
 
 def test_deploy_unknown_job_is_400(make_office):
