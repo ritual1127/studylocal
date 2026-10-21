@@ -2,10 +2,12 @@ from dataclasses import dataclass
 
 from office.llm import chat_json
 
-STEPS = ("scan", "literature", "research", "schedule", "plan", "focus", "pdf", "quiz", "cards", "mindmap", "answer")
+STEPS = ("scan", "literature", "research", "schedule", "plan", "focus",
+         "analysis", "pdf", "quiz", "cards", "mindmap", "translate", "answer")
 SOURCES = ("scan", "literature", "research")
-OUTPUTS = ("pdf", "quiz", "cards", "mindmap", "answer")
-NEEDS_MATERIAL = ("pdf", "quiz", "cards", "mindmap")  # answer는 자료 없이도 답할 수 있다
+ACTIONS = ("schedule", "plan", "focus")
+OUTPUTS = ("analysis", "pdf", "quiz", "cards", "mindmap", "translate", "answer")
+NEEDS_MATERIAL = ("analysis", "pdf", "quiz", "cards", "mindmap", "translate")  # answer는 자료 없이도 답할 수 있다
 
 
 @dataclass
@@ -18,6 +20,7 @@ class Plan:
     question_count: int = 10
     card_count: int = 15
     focus_minutes: int = 25
+    target_lang: str = ""
     use_last: bool = False
     reply: str = ""
     error: str | None = None
@@ -34,23 +37,26 @@ ROUTER_SCHEMA = {
         "question_count": {"type": "integer"},
         "card_count": {"type": "integer"},
         "focus_minutes": {"type": "integer"},
+        "target_lang": {"type": "string"},
         "use_last": {"type": "boolean"},
         "reply": {"type": "string"},
     },
     "required": ["steps", "title", "work_query", "topic", "question", "question_count", "card_count",
-                 "focus_minutes", "use_last", "reply"],
+                 "focus_minutes", "target_lang", "use_last", "reply"],
 }
 
 ROUTER_SYSTEM = """너는 'ritual의 공부 사무실'의 실장이다. 대표(사용자)의 요청을 보고 직원들에게 맡길 단계를 고른다.
 자료 단계:
-- scan: 첨부한 프린트·사진·PDF를 읽는다 (첨부 파일이 있을 때만)
+- scan: 첨부한 파일(사진·PDF·한글·워드·PPT·엑셀·글자 파일)을 읽는다 (첨부 파일이 있을 때만)
 - literature: 문학 작품(소설·시·수필)의 원문과 해설을 가져온다. work_query에 작품 제목, 작가를 알면 함께
 - research: 문학이 아닌 주제(개념·인물·사건·과학 등)를 조사한다. topic에 주제
-결과 단계 (pdf·quiz·cards·mindmap은 자료가 필요하고, answer는 자료 없이도 된다):
+결과 단계 (answer 말고는 자료가 필요하다):
+- analysis: 자료 분석 보고서 (자료 종류·핵심·시험 포인트·공부법). "분석해줘", "이게 뭐야"
 - pdf: 자료를 예쁜 공부 노트 PDF로
 - quiz: 문제 풀이 웹. question_count에 문제 수 (말이 없으면 10)
 - cards: 암기카드. card_count에 카드 수 (말이 없으면 15)
 - mindmap: 개념 마인드맵
+- translate: 자료 번역. target_lang에 언어 (말이 없으면 빈 문자열)
 - answer: 질문에 답한다. question에 질문
 행동 단계:
 - schedule: 일정·할 일·시험 날짜를 등록한다 ("내일 3시 학원", "할 일에 단어 외우기 넣어줘", "기말고사 11월 20일")
@@ -87,8 +93,10 @@ def normalize_plan(raw: dict, has_files: bool, has_ref: bool = False) -> Plan:
         steps.remove("literature")
     if not topic and "research" in steps:
         steps.remove("research")
-    if "research" in steps and not any(s in OUTPUTS or s in ("schedule", "plan", "focus") for s in steps):
+    if "research" in steps and not any(s in OUTPUTS or s in ACTIONS for s in steps):
         steps.append("pdf")  # 조사만 시키면 노트로 정리해 준다
+    if has_files and not any(s in OUTPUTS or s in ACTIONS for s in steps):
+        steps.append("analysis")  # 파일만 올리면 분석해 준다
     use_last = raw.get("use_last") is True
     error = None
     if (any(s in NEEDS_MATERIAL for s in steps) and not any(s in SOURCES for s in steps)
@@ -101,6 +109,7 @@ def normalize_plan(raw: dict, has_files: bool, has_ref: bool = False) -> Plan:
                 question_count=_count(raw.get("question_count"), 10, 3, 20),
                 card_count=_count(raw.get("card_count"), 15, 5, 40),
                 focus_minutes=_count(raw.get("focus_minutes"), 25, 1, 180),
+                target_lang=_text(raw.get("target_lang"))[:20],
                 use_last=use_last, reply=reply, error=error)
 
 

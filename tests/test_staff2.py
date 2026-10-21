@@ -142,3 +142,54 @@ def test_note_and_quiz_carry_ceo_feedback():
     make_note(CELL, llm=llm, feedback="표를 더 넣어줘")
     make_quiz(CELL, 3, llm=llm, feedback="더 어렵게")
     assert "[대표 수정 요청] 표를 더 넣어줘" in seen[0] and "[대표 수정 요청] 더 어렵게" in seen[1]
+
+
+# ---- 분석가 ----
+def test_analysis_report_is_cleaned_and_page_is_safe(tmp_path):
+    from office.analyst import make_analysis_page
+    raw = {"title": "세포 </script><script>alert(1)</script>", "kind": "수업 프린트", "subject": "과학", "level": 9,
+           "one_line": "세포 소기관 정리", "summary": ["핵", "", 3, "미토콘드리아"],
+           "concepts": [{"term": "핵", "why": "유전 정보"}, {"term": "", "why": "x"}, "garbage"],
+           "exam_points": ["핵과 DNA"], "pitfalls": [], "study_tips": ["표로 정리"], "minutes": 99999}
+    seen = {}
+
+    def llm(system, user, schema, **kw):
+        seen["user"] = user
+        return raw
+    page = make_analysis_page(CELL, tmp_path, llm=llm, feedback="표를 더")
+    report = json.loads((tmp_path / "analysis" / "analysis.json").read_text(encoding="utf-8"))
+    assert page == tmp_path / "analysis" / "index.html" and "<script>alert(1)" not in page.read_text(encoding="utf-8")
+    assert report["level"] == 5 and report["minutes"] == 600 and report["summary"] == ["핵", "미토콘드리아"]
+    assert report["concepts"] == [{"term": "핵", "why": "유전 정보"}] and "[대표 수정 요청] 표를 더" in seen["user"]
+
+
+def test_analysis_needs_content():
+    from office.analyst import validate_analysis
+    with pytest.raises(OfficeError):
+        validate_analysis({"one_line": " ", "summary": []})
+
+
+# ---- 번역가 ----
+def test_translation_pairs_paragraphs_and_picks_direction(tmp_path):
+    from office.translator import make_translation_page
+    seen = []
+
+    def llm(system, user, schema, **kw):
+        seen.append(user)
+        return {"translations": ["# Structure of the cell", "Mito </script> respiration."]}
+    page = make_translation_page(CELL, "", tmp_path, llm=llm)
+    data = json.loads((tmp_path / "translation" / "translation.json").read_text(encoding="utf-8"))
+    assert "[1] # 세포의 구조" in seen[0] and "[2] 미토콘드리아는" in seen[0] and "영어" in seen[0]
+    assert data["target"] == "영어" and data["pairs"][1] == {"original": "미토콘드리아는 세포 호흡을 한다.",
+                                                            "translated": "Mito </script> respiration."}
+    assert "Mito </script>" not in page.read_text(encoding="utf-8")
+    assert (tmp_path / "translation" / "translation.md").read_text(encoding="utf-8").startswith("# Structure of the cell\n\n")
+
+    english = Material(title="Cells", markdown="The nucleus controls the cell.\n\nCells divide.")
+    make_translation_page(english, "", tmp_path / "en", llm=lambda s, u, schema, **k: seen.append(u) or {"translations": ["핵"]})
+    pairs = json.loads((tmp_path / "en" / "translation" / "translation.json").read_text(encoding="utf-8"))["pairs"]
+    assert "한국어" in seen[1] and pairs[1] == {"original": "Cells divide.", "translated": ""}  # 모자란 번역은 빈칸
+    make_translation_page(english, "일본어", tmp_path / "jp", llm=lambda s, u, schema, **k: seen.append(u) or {"translations": ["x"]})
+    assert "일본어" in seen[2]
+    with pytest.raises(OfficeError):
+        make_translation_page(english, "", tmp_path / "none", llm=lambda s, u, schema, **k: {"translations": [" "]})

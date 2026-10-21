@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__ · ritual 번역</title>
+<link rel="stylesheet" href="__GALMURI_CSS__">
+<style>
+:root { --c1:#9337FD; --c2:#E036F0; --c3:#FC34CA; --bg:#14111f; --panel:#201a33; --line:#3b2f5c; --ink:#f3eefe; --muted:#a99cc9; }
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font-family: "Galmuri11", "Malgun Gothic", sans-serif; padding: 24px 16px 48px; line-height: 1.6; }
+main { max-width: 1100px; margin: 0 auto; }
+header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.brand { color: var(--c3); }
+.tools { display: flex; gap: 8px; }
+button { font: inherit; color: var(--ink); background: var(--panel); border: 4px solid #000; box-shadow: 4px 4px 0 #000; padding: 6px 12px; cursor: pointer; }
+button.main { background: var(--c1); }
+button[aria-pressed="true"] { background: var(--c2); }
+button:active { transform: translate(4px, 4px); box-shadow: none; }
+button:focus-visible { outline: 4px solid var(--c3); outline-offset: 2px; }
+h1 { font-size: 22px; margin: 8px 0 16px; text-shadow: 3px 3px 0 #000; overflow-wrap: anywhere; }
+.heads, .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.heads { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+.pair { padding: 10px 0; border-top: 2px solid var(--line); }
+.pair p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.pair .to { color: #fff; }
+.pair .to:empty::before { content: "(번역 빠짐)"; color: var(--muted); }
+body.only .from, body.only .heads span:first-child { display: none; }
+body.only .heads, body.only .pair { grid-template-columns: 1fr; }
+footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 20px; }
+@media (max-width: 640px) { .heads { display: none; } .pair { grid-template-columns: 1fr; gap: 4px; } .pair .from { color: var(--muted); } }
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body { background: #fff; color: #000; padding: 0; }
+  header .tools, footer { display: none; }
+  .pair .to { color: #000; } .pair { break-inside: avoid; border-color: #ccc; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header><span class="brand" id="brand">ritual 번역</span>
+    <span class="tools"><button id="only" type="button" aria-pressed="false">번역만 보기</button>
+      <button id="print" class="main" type="button">인쇄 / PDF로 저장</button></span></header>
+  <h1>__TITLE__</h1>
+  <div class="heads"><span>원문</span><span id="to-head"></span></div>
+  <div id="pairs"></div>
+  <footer>ritual의 공부 사무실 · 번역가가 옮겼어</footer>
+</main>
+<script id="data" type="application/json">__DATA_JSON__</script>
+<script>
+const data = JSON.parse(document.getElementById("data").textContent);
+document.getElementById("brand").textContent = "ritual 번역 · " + data.target;
+document.getElementById("to-head").textContent = data.target + " 번역";
+const box = document.getElementById("pairs");
+for (const p of data.pairs) {
+  const row = document.createElement("div"); row.className = "pair";
+  const a = document.createElement("p"); a.className = "from"; a.textContent = p.original;
+  const b = document.createElement("p"); b.className = "to"; b.textContent = p.translated;
+  row.append(a, b); box.append(row);
+}
+const only = document.getElementById("only");
+only.onclick = () => { const on = document.body.classList.toggle("only"); only.setAttribute("aria-pressed", String(on)); };
+document.getElementById("print").onclick = () => print();
+</script>
+</body>
+</html>

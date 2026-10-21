@@ -16,7 +16,7 @@ def test_literature_needs_query_and_steps_are_ordered():
 def test_question_count_clamped_and_garbage_tolerated():
     assert normalize_plan({"steps": ["quiz"], "question_count": 99}, True).question_count == 20
     assert normalize_plan({"steps": ["quiz"], "question_count": "많이"}, True).question_count == 10
-    assert normalize_plan({"steps": "pdf", "unknown": 1}, True).steps == ["scan"]
+    assert normalize_plan({"steps": "pdf", "unknown": 1}, True).steps == ["scan", "analysis"]
 
 def test_chat_only_keeps_reply():
     p = normalize_plan({"steps": [], "reply": "안녕!"}, False)
@@ -60,3 +60,13 @@ def test_route_tells_router_about_selected_material():
         return {"steps": ["cards"]}
     assert route("이걸로 카드", has_files=False, llm=fake, has_ref=True).error is None
     assert "선택한 이전 자료: 있음" in seen["user"]
+
+def test_files_alone_get_an_analysis_but_actions_do_not():
+    assert normalize_plan({"steps": []}, True).steps == ["scan", "analysis"]
+    assert normalize_plan({"steps": ["schedule"]}, True).steps == ["scan", "schedule"]
+    assert normalize_plan({"steps": ["quiz", "analysis"]}, True).steps == ["scan", "analysis", "quiz"]
+
+def test_translate_needs_material_and_keeps_target_language():
+    p = normalize_plan({"steps": ["literature", "translate"], "work_query": "어린 왕자", "target_lang": " 영어 "}, False)
+    assert p.steps == ["literature", "translate"] and p.target_lang == "영어"
+    assert normalize_plan({"steps": ["translate"]}, False).error.startswith("자료가 없어")
