@@ -5,6 +5,7 @@ import queue
 import re
 import secrets
 import shutil
+import tempfile
 import threading
 import time
 import traceback
@@ -57,6 +58,9 @@ NO_MATERIAL = "이전 자료를 못 찾았어. 프린트를 올리거나 작품�
 PENDING = ("review", "revising")
 ACTIVE = ("queued", "running", "revising")
 MENTION = re.compile(r"\s*@(\S+)")
+JOB_ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{4}")
+FINISHED = ("done", "error", "needs_input", "cancelled")
+GROUPS = {"review": PENDING, "done": ("done",), "error": ("error", "needs_input", "cancelled")}
 
 
 def split_mention(text: str) -> tuple[str, str]:
@@ -107,6 +111,7 @@ class Job:
     no: int = 0                                         # 작업 번호 (1부터, 1단계 작업은 0)
     assignee: str = ""                                  # @이름으로 지정한 직원
     trace: list[str] = field(default_factory=list)      # rab이 쓴 도구 기록
+    star: bool = False                                  # 즐겨찾기
 
     @property
     def outputs(self) -> list[str]:
@@ -189,11 +194,100 @@ class Office:
                 raise OfficeError("대표 승인이 끝난 작업만 배포할 수 있어.")
         self.queue.put(("deploy", job_id))
 
-    def _get(self, job_id: str) -> Job:
+    def _lookup(self, job_id: str) -> Job | None:
+        """메모리에 없으면 디스크의 옛 작업을 불러온다 (작업 번호 모양일 때만 → 경로 탈출 없음)."""
         job = self.jobs.get(job_id)
+        if job is None and isinstance(job_id, str) and JOB_ID.fullmatch(job_id):
+            try:
+                data = json.loads((self.jobs_dir / job_id / "job.json").read_text(encoding="utf-8"))
+                job = Job(**{k: data[k] for k in Job.__dataclass_fields__ if k in data})
+            except (OSError, ValueError, TypeError, KeyError):
+                return None
+            if job.id != job_id:
+                return None
+            self.jobs.setdefault(job_id, job)
+            job = self.jobs[job_id]
+        return job
+
+    def _get(self, job_id: str) -> Job:
+        job = self._lookup(job_id)
         if job is None:
             raise OfficeError("그런 작업이 없어.")
         return job
+
+    def star(self, job_id: str) -> bool:
+        with self.lock:
+            job = self._get(job_id)
+            job.star = not job.star
+        self._save(job)
+        return job.star
+
+    def rename(self, job_id: str, title: str) -> None:
+        title = " ".join(str(title or "").split())[:80]
+        if not title:
+            raise OfficeError("제목을 적어줘.")
+        with self.lock:
+            job = self._get(job_id)
+            job.title = title
+        self._save(job)
+
+    def _all_jobs(self) -> list[dict]:
+        """디스크의 모든 작업 + 메모리의 최신 상태, 최근 것부터."""
+        rows = {}
+        for path in self.jobs_dir.glob("*/job.json"):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if data.get("id") == path.parent.name:
+                    rows[data["id"]] = data
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+        with self.lock:
+            rows.update({job.id: asdict(job) for job in self.jobs.values()})
+        return sorted(rows.values(), key=lambda d: (d.get("no") or 0, d["id"]), reverse=True)
+
+    def history(self, q: str = "", status: str = "", star: bool = False, offset: int = 0, limit: int = 30) -> dict:
+        rows = self._all_jobs()
+        counts = {"all": len(rows), **{g: sum(r.get("status") in sts for r in rows) for g, sts in GROUPS.items()},
+                  "star": sum(bool(r.get("star")) for r in rows)}
+        q = str(q or "").strip().lower()
+        if status in GROUPS:
+            rows = [r for r in rows if r.get("status") in GROUPS[status]]
+        if star:
+            rows = [r for r in rows if r.get("star")]
+        if q:
+            rows = [r for r in rows if q in f"{r.get('title', '')} {r.get('text', '')} {' '.join(r.get('names') or [])}".lower()]
+        offset, limit = max(0, int(offset)), max(1, min(100, int(limit)))
+        page = [{**{k: v for k, v in r.items() if k != "log"}, "files": [Path(f).name for f in r.get("files") or []]}
+                for r in rows[offset:offset + limit]]
+        return {"total": len(rows), "counts": counts, "jobs": page, "more": offset + limit < len(rows)}
+
+    def reset(self, what: str) -> int:
+        """초기화: queue(대기 작업 전부 취소) · vault(완료·에러·취소 작업 지우기, ★와 결재 대기는 남김) · staff(직원 자리 정리)."""
+        if what == "queue":
+            with self.lock:
+                queued = [j.id for j in self.jobs.values() if j.status == "queued"]
+            for job_id in queued:
+                self.cancel(job_id)
+            return len(queued)
+        if what == "vault":
+            gone = [r["id"] for r in self._all_jobs() if r.get("status") in FINISHED and not r.get("star")]
+            for job_id in gone:
+                with self.lock:
+                    self.jobs.pop(job_id, None)
+                shutil.rmtree(self.jobs_dir / job_id, ignore_errors=True)
+            return len(gone)
+        if what == "staff":
+            with self.lock:
+                for r in self.staff:
+                    self.staff[r] = {"name": ROLES[r], "state": "idle", "say": ""}
+            return len(self.staff)
+        raise OfficeError("그런 초기화는 없어.")
+
+    def zip_job(self, job_id: str) -> Path:
+        self._get(job_id)
+        fd, tmp = tempfile.mkstemp(suffix=".zip")
+        os.close(fd)
+        return Path(shutil.make_archive(tmp[:-4], "zip", root_dir=self.jobs_dir / job_id))
 
     def retry(self, job_id: str) -> None:
         with self.lock:
@@ -294,7 +388,7 @@ class Office:
     # ---- 상태 ----
     def snapshot(self) -> dict:
         with self.lock:
-            jobs = list(self.jobs.values())[::-1]
+            jobs = sorted(self.jobs.values(), key=lambda j: (j.no, j.id), reverse=True)
             shown = jobs[:MAX_JOBS] + [j for j in jobs[MAX_JOBS:] if j.status in PENDING]
             out = []
             for job in shown:
@@ -304,15 +398,19 @@ class Office:
             return {"staff": {role: dict(s) for role, s in self.staff.items()}, "jobs": out, "auto": dict(self.auto)}
 
     def load_history(self) -> None:
-        paths = sorted(self.jobs_dir.glob("*/job.json"))
-        for i, path in enumerate(paths):
+        loaded = []
+        for path in self.jobs_dir.glob("*/job.json"):
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 job = Job(**{k: data[k] for k in Job.__dataclass_fields__ if k in data})
             except (OSError, ValueError, TypeError, KeyError):
                 continue
-            if job.id != path.parent.name or (i < len(paths) - MAX_JOBS and job.status not in PENDING):
-                continue  # 오래된 작업은 결재 대기만 불러온다
+            if job.id == path.parent.name:
+                loaded.append(job)
+        loaded.sort(key=lambda j: (j.no, j.id))  # 작업 번호 순 (같은 초에 만든 작업도 순서가 안 섞이게)
+        for i, job in enumerate(loaded):
+            if i < len(loaded) - MAX_JOBS and job.status not in PENDING:
+                continue  # 오래된 작업은 결재 대기만 불러온다 (나머지는 히스토리에서)
             if job.status in ("queued", "running"):
                 job.status, job.error = "error", "프로그램이 꺼져서 중단됐어."
             elif job.status == "revising":
@@ -353,7 +451,7 @@ class Office:
                 "staff": staff, "study_week": sum(d["minutes"] for d in week)}
 
     def material_of(self, job_id: str) -> Material | None:
-        if job_id not in self.jobs:  # 경로는 아는 작업 번호로만 만든다
+        if self._lookup(job_id) is None:  # 경로는 작업 번호 모양일 때만 만든다
             return None
         folder = self.jobs_dir / job_id
         try:
@@ -369,7 +467,7 @@ class Office:
 
     def _last_material(self, current: str) -> Material | None:
         with self.lock:
-            ids = list(self.jobs)[::-1]
+            ids = [j.id for j in sorted(self.jobs.values(), key=lambda j: (j.no, j.id), reverse=True)]
         return next((m for job_id in ids if job_id != current and (m := self.material_of(job_id))), None)
 
     def _set(self, job: Job, role: str, state: str, say: str = "") -> None:

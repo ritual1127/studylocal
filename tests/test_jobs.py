@@ -1,5 +1,7 @@
 import datetime
 import json
+from pathlib import Path
+
 import pytest
 from office import Material, OfficeError
 from office.jobs import Office, merge
@@ -294,3 +296,59 @@ def test_jobs_get_running_numbers_that_survive_restart(make_office, tmp_path):
     j, _ = again.new_job_dir()
     again.submit(j, "x", [])
     assert again.jobs[j].no == 3
+
+
+# ---- 즐겨찾기 · 제목 · 히스토리 · 초기화 · zip ----
+def test_star_and_rename(make_office):
+    office = make_office()
+    job = run(office, "PDF로", ["00.jpg"])
+    assert office.star(job.id) is True and office.star(job.id) is False
+    office.rename(job.id, "  2학기 세포 정리  ")
+    assert job.title == "2학기 세포 정리"
+    with pytest.raises(OfficeError):
+        office.rename(job.id, " ")
+
+def test_history_lists_every_job_and_old_jobs_still_work(make_office, tmp_path, monkeypatch):
+    office = make_office(route=routes(files=Plan(steps=["scan", "pdf"]), 질문=Plan(steps=["answer"])))
+    for _ in range(3):
+        run(office, "PDF로", ["00.jpg"])
+    office.approve(office.history()["jobs"][1]["id"])
+    run(office, "질문")
+    monkeypatch.setattr("office.jobs.MAX_JOBS", 1)
+    fresh = Office(tmp_path, route=office.route)  # 다시 켜면 최근 1개 + 결재 대기만 메모리에
+    fresh.load_history()
+    h = fresh.history(limit=2)
+    assert h["total"] == 4 and len(h["jobs"]) == 2 and h["more"] is True and h["jobs"][0]["text"] == "질문"
+    assert fresh.history(status="review")["total"] == 2 and fresh.history(q="질문")["total"] == 1
+    assert h["counts"] == {"all": 4, "review": 2, "done": 2, "error": 0, "star": 0}
+    done_old = fresh.history(status="done")["jobs"][1]
+    assert done_old["id"] not in fresh.jobs
+    assert fresh.star(done_old["id"]) is True and fresh.history(star=True)["total"] == 1  # 메모리에 없던 옛 작업도
+    assert fresh.material_of(done_old["id"]).markdown == "# 세포"
+    assert fresh.material_of("../../etc") is None and fresh.history(offset=99)["jobs"] == []
+
+def test_reset_queue_vault_and_staff(make_office):
+    office = make_office(route=routes(files=Plan(steps=["scan", "pdf"]), 질문=Plan(steps=["answer"])))
+    keep_review = run(office, "PDF로", ["00.jpg"])
+    starred = run(office, "질문")
+    office.star(starred.id)
+    gone = run(office, "질문")
+    q, _ = office.new_job_dir()
+    office.submit(q, "질문", [])
+    assert office.reset("queue") == 1 and office.jobs[q].status == "cancelled"
+    assert office.reset("vault") == 2  # 완료(gone) + 취소(q). ★와 결재 대기는 남는다
+    assert set(office.jobs) == {keep_review.id, starred.id} and not (office.jobs_dir / gone.id).exists()
+    office.staff["designer"] = {"name": "디자이너", "state": "error", "say": "x"}
+    assert office.reset("staff") == 14 and office.staff["designer"]["state"] == "idle"
+    with pytest.raises(OfficeError):
+        office.reset("everything")
+
+def test_zip_has_job_outputs(make_office):
+    import zipfile
+    office = make_office()
+    job = run(office, "PDF로", ["00.jpg"])
+    path = office.zip_job(job.id)
+    try:
+        assert {"note.pdf", "source.txt"} <= {Path(n).name for n in zipfile.ZipFile(path).namelist()}
+    finally:
+        path.unlink()
