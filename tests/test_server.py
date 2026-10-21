@@ -76,7 +76,9 @@ def test_approve_reject_retry_delete_endpoints(make_office):
     office.run_next()
     assert c.post(f"/api/jobs/{j}/approve", json={"comment": "좋아"}).json() == {"ok": True}
     assert office.jobs[j].status == "done"
-    assert c.post(f"/api/jobs/{j}/retry").status_code == 400
+    busy = c.post("/api/command", data={"text": "PDF로"}, files=upload()).json()["job_id"]
+    assert c.post(f"/api/jobs/{busy}/retry").status_code == 400  # 대기 중이면 다시 못 함
+    office.run_next()
     assert c.post(f"/api/jobs/{j}/delete").json() == {"ok": True} and j not in office.jobs
     assert c.post("/api/jobs/nope/approve", json={}).status_code == 400
 

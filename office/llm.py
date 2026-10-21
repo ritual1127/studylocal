@@ -61,6 +61,28 @@ def chat(system: str, user: str, *, images: list[bytes] | None = None,
         raise OfficeError("Ollama가 꺼져 있어. 작업 표시줄에서 Ollama를 켜줘.") from e
 
 
+def chat_tools(messages: list[dict], tools: list[dict], temperature: float = 0) -> dict:
+    """도구 호출 대화 한 번 (rab 에이전트). 돌려주는 건 assistant 메시지 (content, tool_calls)."""
+    payload = {"model": model(), "stream": False, "think": False, "keep_alive": KEEP_ALIVE,
+               "options": {**_options(), "temperature": temperature}, "messages": messages, "tools": tools}
+    name = payload["model"]
+    try:
+        try:
+            return _post("/api/chat", payload, 600)["message"]
+        except urllib.error.HTTPError as e:
+            if e.code != 500 or payload["options"].pop("num_gpu", None) is None:
+                raise
+            return _post("/api/chat", payload, 600)["message"]
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            raise OfficeError(f"모델 {name}이(가) 없어. 터미널에서 `ollama pull {name}` 해줘.") from e
+        raise OfficeError(f"Ollama 오류 {e.code}: {e.read().decode('utf-8', 'replace')[:200]}") from e
+    except (urllib.error.URLError, ConnectionError) as e:
+        raise OfficeError("Ollama가 꺼져 있어. 작업 표시줄에서 Ollama를 켜줘.") from e
+    except TimeoutError as e:
+        raise OfficeError("AI 응답이 10분을 넘겼어. 다시 시도해줘.") from e
+
+
 def warm() -> None:
     """모델을 미리 GPU에 올려 둔다 (첫 작업이 로딩을 기다리지 않게). 옵션이 다르면 Ollama가 다시 올리므로 같은 옵션으로."""
     try:

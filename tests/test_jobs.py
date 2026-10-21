@@ -31,7 +31,7 @@ def test_scan_to_pdf_job_waits_for_approval(make_office):
     assert job["results"]["pdf"] == f"/files/jobs/{job_id}/note.pdf"
     assert (job_dir / "source.txt").read_text(encoding="utf-8") == "# 세포"
     assert (job_dir / "job.json").exists() and job["seconds"] >= 0
-    assert snap["staff"]["designer"]["state"] == "done" and snap["staff"]["manager"]["name"] == "실장"
+    assert snap["staff"]["designer"]["state"] == "done" and snap["staff"]["manager"]["name"] == "rab"
     assert any(line.startswith("[스캐너]") for line in job["log"])
     assert len(snap["staff"]) == 14
 
@@ -258,9 +258,9 @@ def test_retry_error_job_and_delete(make_office):
     assert job.status == "error" and office.notifier.sent == ["작업 실패: PDF로"]
     office.retry(job.id); office.run_next()
     assert job.status == "review" and job.error is None and len(calls) == 2
-    with pytest.raises(OfficeError):
-        office.retry(job.id)
     busy, _ = office.new_job_dir(); office.submit(busy, "PDF로", [])
+    with pytest.raises(OfficeError, match="일하는 중"):
+        office.retry(busy)  # 대기·진행 중인 작업은 다시 못 한다
     with pytest.raises(OfficeError, match="일하는 중"):
         office.delete(busy)
     office.delete(job.id)

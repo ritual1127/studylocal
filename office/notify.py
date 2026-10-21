@@ -121,13 +121,17 @@ class Notifier:
         self.post(ntfy_root(s["server"]), {"topic": s["topic"], "title": title, "message": body,
                                 "priority": 4 if reminder else 3, "tags": ["alarm_clock" if reminder else "books"]})
 
-    def send(self, title: str, body: str, reminder: bool = False) -> list[str]:
-        """켜 둔 곳에 모두 보낸다. 실패해도 예외 대신 에러 목록을 돌려준다."""
+    def send(self, title: str, body: str, reminder: bool = False, only: str | None = None) -> list[str]:
+        """켜 둔 곳에 모두 (only="pc"·"phone"이면 그곳만) 보낸다. 실패해도 예외 대신 에러 목록을 돌려준다."""
         s = self.settings
         errors = []
-        channels = [("PC", s["pc"], self._pc), ("폰", s["phone"] and bool(s["topic"]), self._phone)]
-        for name, enabled, sender in channels:
+        channels = [("PC", "pc", s["pc"], self._pc), ("폰", "phone", s["phone"] and bool(s["topic"]), self._phone)]
+        for name, key, enabled, sender in channels:
+            if only and key != only:
+                continue
             if not enabled:
+                if only:
+                    errors.append(f"{name}: {name} 알림이 꺼져 있어. 설정에서 켜줘.")
                 continue
             try:
                 sender(title, body, reminder)

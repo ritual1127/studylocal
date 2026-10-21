@@ -1,15 +1,19 @@
 import datetime
 import json
+import os
 import queue
+import re
 import secrets
 import shutil
 import threading
 import time
 import traceback
+import webbrowser
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from office import Material, OfficeError
+from office.agent import Agent, Cancelled, bring_copy
 from office.analyst import make_analysis_page
 from office.cards import make_cards_page
 from office.coach import make_study_plan
@@ -20,16 +24,17 @@ from office.llm import clip
 from office.mindmap import make_mindmap_page
 from office.note import make_pdf
 from office.notify import Notifier
-from office.plan import NEEDS_MATERIAL, OUTPUTS, route as plan_route
+from office.plan import NEEDS_MATERIAL, OUTPUTS, STEPS, route as plan_route
 from office.planner import Planner
 from office.quiz import make_quiz_page
 from office.research import research
 from office.scan import scan
 from office.secretary import parse_schedule
+from office.tools import files_from, load_permissions
 from office.translator import make_translation_page
 from office.tutor import answer_question
 
-ROLES = {"manager": "실장", "secretary": "비서", "deployer": "배포담당",
+ROLES = {"manager": "rab", "secretary": "비서", "deployer": "배포담당",
          "scanner": "스캐너", "librarian": "사서", "researcher": "조사원", "analyst": "분석가",
          "designer": "디자이너", "examiner": "출제위원", "cards": "암기담당", "mapper": "정리왕",
          "tutor": "선생님", "translator": "번역가", "coach": "코치"}
@@ -50,6 +55,27 @@ MAX_ANSWER = 6000
 CRASH_MSG = "예상 못 한 오류가 났어. 로그: %LOCALAPPDATA%\\ritual-office\\office.log"
 NO_MATERIAL = "이전 자료를 못 찾았어. 프린트를 올리거나 작품·주제 이름을 알려줘."
 PENDING = ("review", "revising")
+ACTIVE = ("queued", "running", "revising")
+MENTION = re.compile(r"\s*@(\S+)")
+
+
+def split_mention(text: str) -> tuple[str, str]:
+    """'@번역가한테 이거 영어로' → ('translator', '이거 영어로'). 없는 이름이면 ('', 원문)."""
+    m = MENTION.match(text or "")
+    if not m:
+        return "", text
+    token = m.group(1)
+    for role, name in sorted(ROLES.items(), key=lambda kv: -len(kv[1])):
+        if token.startswith(name) and role != "manager":
+            return role, text[m.end():].strip()
+    return "", text
+
+
+def open_on_pc(target: str) -> None:
+    if target.startswith(("http://", "https://")):
+        webbrowser.open(target)
+    else:
+        os.startfile(target)  # 파일·폴더·앱(notepad 같은 이름)·ms-settings:
 
 
 def _now() -> str:
@@ -79,6 +105,8 @@ class Job:
     seconds: int = 0                                    # 마지막으로 일한 시간
     names: list[str] = field(default_factory=list)      # 올린 파일의 원래 이름 (보여주기만, 경로엔 안 씀)
     no: int = 0                                         # 작업 번호 (1부터, 1단계 작업은 0)
+    assignee: str = ""                                  # @이름으로 지정한 직원
+    trace: list[str] = field(default_factory=list)      # rab이 쓴 도구 기록
 
     @property
     def outputs(self) -> list[str]:
@@ -93,14 +121,20 @@ def merge(materials: list[Material], title: str) -> Material:
                     warnings=[w for m in materials for w in m.warnings])
 
 
+class NeedInput(OfficeError):
+    """자료가 없어서 대표에게 되물어야 한다."""
+
+
 class Office:
-    def __init__(self, root: Path = OUTPUT, *, route=plan_route, steps: dict | None = None, deploy=deploy_site,
-                 planner: Planner | None = None, notifier: Notifier | None = None):
+    def __init__(self, root: Path = OUTPUT, *, route=None, steps: dict | None = None, deploy=deploy_site,
+                 planner: Planner | None = None, notifier: Notifier | None = None, agent_llm=None, files=None, opener=None):
         self.root = Path(root)
         self.jobs_dir = self.root / "jobs"
         self.site_dir = self.root / "ritual-quiz"
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
-        self.route, self.deploy = route, deploy
+        self.route, self.deploy = route or plan_route, deploy
+        self.agent = None if route is not None and agent_llm is None else Agent(self, agent_llm)  # 실장 자리 = rab 에이전트
+        self.opener = opener or open_on_pc
         self.steps = steps or {"scan": scan, "literature": fetch_literature, "research": research,
                                "analysis": make_analysis_page, "pdf": make_pdf, "quiz": make_quiz_page,
                                "cards": make_cards_page, "mindmap": make_mindmap_page,
@@ -108,6 +142,8 @@ class Office:
                                "schedule": parse_schedule, "plan": make_study_plan}
         self.planner = planner or Planner(self.root / "planner.json")
         self.notifier = notifier or Notifier(self.root / "settings.json")
+        self.files = files or files_from(load_permissions(self.root / "permissions.json"), self.root)
+        self.stopping: set[str] = set()  # [중단]을 누른, 일하는 중인 작업
         self.jobs: dict[str, Job] = {}
         self.staff = {role: {"name": name, "state": "idle", "say": ""} for role, name in ROLES.items()}
         self.active = "manager"  # 지금 일하는 직원 (에러가 나면 이 직원 책상에 빨간불)
@@ -134,7 +170,7 @@ class Office:
 
     def submit(self, job_id: str, text: str, files: list[Path], ref: str = "", names: list[str] | None = None) -> None:
         job = Job(id=job_id, text=text, files=[str(f) for f in files], ref=ref, created=_now(),
-                  names=list(names or [Path(f).name for f in files]))
+                  names=list(names or [Path(f).name for f in files]), assignee=split_mention(text)[0])
         with self.lock:
             self.counter += 1
             job.no = self.counter
@@ -162,11 +198,31 @@ class Office:
     def retry(self, job_id: str) -> None:
         with self.lock:
             job = self._get(job_id)
-            if job.status != "error":
-                raise OfficeError("에러 난 작업만 다시 할 수 있어.")
-            job.status, job.error, job.reply, job.answer = "queued", None, "", ""
-            job.log, job.results, job.warnings, job.steps, job.options = [], {}, [], [], {}
+            if job.status in ACTIVE:
+                raise OfficeError("일하는 중인 작업은 다시 할 수 없어. 끝나거나 멈춘 뒤에 해줘.")
+            job.status, job.error, job.reply, job.answer, job.finished = "queued", None, "", "", ""
+            job.log, job.warnings, job.steps, job.options, job.approvals, job.trace = [], [], [], {}, [], []
+            job.results = {"files": job.results["files"]} if job.results.get("files") else {}  # 가져온 파일은 그대로
+            job.revision = 0
         self.queue.put(("job", job_id))
+
+    def cancel(self, job_id: str) -> str:
+        """대기 중이면 바로 취소, 하는 중이면 지금 단계가 끝나는 대로 멈춘다."""
+        with self.lock:
+            job = self._get(job_id)
+            if job.status == "queued":
+                job.status, job.reply = "cancelled", "대표님 지시로 취소했습니다."
+            elif job.status in ("running", "revising"):
+                self.stopping.add(job_id)
+                return "stopping"
+            else:
+                raise OfficeError("대기 중이거나 하는 중인 작업만 멈출 수 있어.")
+        self._save(job)
+        return "cancelled"
+
+    def checkpoint(self, job: Job) -> None:
+        if job.id in self.stopping:
+            raise Cancelled()
 
     def delete(self, job_id: str) -> None:
         with self.lock:
@@ -224,7 +280,7 @@ class Office:
         except queue.Empty:
             return False
         job = self.jobs.get(job_id)
-        if job is not None:  # 그사이 지운 작업은 건너뛴다
+        if job is not None and job.status != "cancelled":  # 그사이 지우거나 취소한 작업은 건너뛴다
             {"deploy": self._run_deploy, "revise": self._run_revise}.get(kind, self._run_job)(job)
         return True
 
@@ -317,6 +373,8 @@ class Office:
         return next((m for job_id in ids if job_id != current and (m := self.material_of(job_id))), None)
 
     def _set(self, job: Job, role: str, state: str, say: str = "") -> None:
+        if state == "working":
+            self.checkpoint(job)  # [중단]은 다음 단계가 시작될 때 걸린다
         with self.lock:
             self.staff[role] = {"name": ROLES[role], "state": state, "say": say}
             if state == "working":
@@ -379,91 +437,192 @@ class Office:
 
     # ---- 일 처리 ----
     def _run_job(self, job: Job) -> None:
-        job_dir = self.jobs_dir / job.id
         started = self._begin(job, "running")
         try:
             self._set(job, "manager", "working", "명령 읽는 중")
+            if self.agent:  # rab: 도구를 골라 쓰는 에이전트
+                text = split_mention(job.text)[1]
+                reply = self.agent.run(job, text)
+                self._update(job, reply=reply, title=job.title or text[:30])
+                self._set(job, "manager", "done", reply)
+                self._settle(job)
+                return
             plan = self.route(job.text, bool(job.files), has_ref=bool(job.ref))
             if plan.error:
                 self._ask(job, plan.error)
                 return
-            self._update(job, reply=plan.reply, title=plan.title, steps=list(plan.steps),
-                         options={"question_count": plan.question_count, "card_count": plan.card_count,
-                                  "question": plan.question, "target_lang": plan.target_lang})
+            self._update(job, reply=plan.reply, title=plan.title)
             self._set(job, "manager", "working" if plan.steps else "done", plan.reply)
-            if not plan.steps:
-                self._settle(job)
-                return
-
-            materials = []
-            if job.ref or plan.use_last:
-                previous = self.material_of(job.ref) if job.ref else self._last_material(job.id)
-                if previous:
-                    materials.append(previous)
-                    self._set(job, "manager", "working", f"'{previous.title}' 자료 다시 꺼냈어")
-            if "scan" in plan.steps:
-                self._set(job, "scanner", "working", "파일 읽을게")
-                m = self.steps["scan"]([Path(f) for f in job.files], say=self._sayer(job, "scanner"))
-                materials.append(m)
-                self._set(job, "scanner", "done", f"다 읽었어 ({len(m.markdown):,}자)")
-            if "literature" in plan.steps:
-                self._set(job, "librarian", "working", f"'{plan.work_query}' 찾아볼게")
-                m = self.steps["literature"](plan.work_query, say=self._sayer(job, "librarian"))
-                materials.append(m)
-                self._set(job, "librarian", "done", f"'{m.title}' 가져왔어")
-            if "research" in plan.steps:
-                self._set(job, "researcher", "working", f"'{plan.topic}' 조사할게")
-                m = self.steps["research"](plan.topic, say=self._sayer(job, "researcher"))
-                materials.append(m)
-                self._set(job, "researcher", "done", f"'{m.title}' 조사 끝")
-            if not materials and any(s in NEEDS_MATERIAL for s in plan.steps):
-                self._ask(job, NO_MATERIAL)
-                return
-            material = merge(materials, plan.title) if materials else None
-            if material:
-                (job_dir / "source.txt").write_text(material.markdown, encoding="utf-8")
-                (job_dir / "material.json").write_text(json.dumps(asdict(material), ensure_ascii=False), encoding="utf-8")
-                self._update(job, title=material.title, warnings=list(material.warnings),
-                             results={"text": self._url(job_dir / "source.txt")})
-
-            today = self.planner.now().date()
-            if "schedule" in plan.steps:
-                self._set(job, "secretary", "working", "일정 정리할게")
-                text = job.text + (f"\n\n[첨부 자료]\n{clip(material.markdown, 3000)}" if material else "")
-                out = self.steps["schedule"](text, today)
-                for event in out["events"]:
-                    self.planner.add_event(**event)
-                for todo in out["todos"]:
-                    self.planner.add_todo(**todo)
-                self._set(job, "secretary", "done",
-                          out["reply"] or f"일정 {len(out['events'])}개, 할 일 {len(out['todos'])}개 넣었어")
-            if "plan" in plan.steps:
-                self._set(job, "coach", "working", "공부 계획 짜볼게")
-                exams = [e for e in self.planner.view()["events"] if e["kind"] == "시험" and e["date"] >= today.isoformat()]
-                out = self.steps["plan"](job.text, today, exams, material)
-                for todo in out["todos"]:
-                    self.planner.add_todo(todo["text"], date=todo["date"])
-                self._set(job, "coach", "done", f"할 일 {len(out['todos'])}개로 계획 짰어! {out['reply']}".strip())
-            if "focus" in plan.steps:
-                running = self.planner.start_focus(plan.focus_minutes, task=plan.title)
-                self._set(job, "coach", "done", f"{running['minutes']}분 공부모드 시작! 끝나면 알려줄게")
-
-            self._make_outputs(job, material)
+            if plan.steps:
+                self.run_plan(job, plan)
             self._settle(job)
+        except NeedInput as e:
+            self._ask(job, str(e))
+        except Cancelled:
+            self._stopped(job, "cancelled")
         except Exception as e:
             self._fail(job, e, "error")
         finally:
+            self.stopping.discard(job.id)
             self._update(job, seconds=round(time.monotonic() - started))
             self._save(job)
             self._notify(job)
+
+    def _stopped(self, job: Job, status: str) -> None:
+        self._update(job, status=status, reply="대표님 지시로 중단했습니다." + (" 이전 결과물로 결재할 수 있어요." if status == "review" else ""))
+        with self.lock:
+            for r in self.staff:
+                self.staff[r] = {"name": ROLES[r], "state": "idle", "say": ""}
+            job.log.append("[rab] 대표님 지시로 중단했습니다.")
+
+    def run_plan(self, job: Job, plan) -> None:
+        """직원 팀 일: 자료 모으기 → 일정·계획·공부모드 → 결과물. rab의 do_work도 이걸 쓴다."""
+        job_dir = self.jobs_dir / job.id
+        outputs = [s for s in plan.steps if s in OUTPUTS]
+        self._update(job, steps=[s for s in STEPS if s in set(job.steps) | set(plan.steps)], title=job.title or plan.title,
+                     options={**job.options, "question_count": plan.question_count, "card_count": plan.card_count,
+                              "question": plan.question or job.options.get("question", ""), "target_lang": plan.target_lang})
+        materials = []
+        if job.ref or plan.use_last:
+            previous = self.material_of(job.ref) if job.ref else self._last_material(job.id)
+            if previous:
+                materials.append(previous)
+                self._set(job, "manager", "working", f"'{previous.title}' 자료 다시 꺼냈어")
+        if "scan" in plan.steps:
+            self._set(job, "scanner", "working", "파일 읽을게")
+            m = self.steps["scan"]([Path(f) for f in job.files], say=self._sayer(job, "scanner"))
+            materials.append(m)
+            self._set(job, "scanner", "done", f"다 읽었어 ({len(m.markdown):,}자)")
+        if "literature" in plan.steps:
+            self._set(job, "librarian", "working", f"'{plan.work_query}' 찾아볼게")
+            m = self.steps["literature"](plan.work_query, say=self._sayer(job, "librarian"))
+            materials.append(m)
+            self._set(job, "librarian", "done", f"'{m.title}' 가져왔어")
+        if "research" in plan.steps:
+            self._set(job, "researcher", "working", f"'{plan.topic}' 조사할게")
+            m = self.steps["research"](plan.topic, say=self._sayer(job, "researcher"))
+            materials.append(m)
+            self._set(job, "researcher", "done", f"'{m.title}' 조사 끝")
+        if not materials and (job_dir / "material.json").exists():
+            materials = [m for m in [self.material_of(job.id)] if m]  # 같은 작업에서 앞서 모은 자료
+        if not materials and any(s in NEEDS_MATERIAL for s in plan.steps):
+            raise NeedInput(NO_MATERIAL)
+        material = merge(materials, plan.title) if materials else None
+        if material:
+            (job_dir / "source.txt").write_text(material.markdown, encoding="utf-8")
+            (job_dir / "material.json").write_text(json.dumps(asdict(material), ensure_ascii=False), encoding="utf-8")
+            self._update(job, title=material.title, warnings=list(material.warnings),
+                         results={"text": self._url(job_dir / "source.txt")})
+
+        today = self.planner.now().date()
+        if "schedule" in plan.steps:
+            self._set(job, "secretary", "working", "일정 정리할게")
+            text = job.text + (f"\n\n[첨부 자료]\n{clip(material.markdown, 3000)}" if material else "")
+            out = self.steps["schedule"](text, today)
+            for event in out["events"]:
+                self.planner.add_event(**event)
+            for todo in out["todos"]:
+                self.planner.add_todo(**todo)
+            self._set(job, "secretary", "done",
+                      out["reply"] or f"일정 {len(out['events'])}개, 할 일 {len(out['todos'])}개 넣었어")
+        if "plan" in plan.steps:
+            self._set(job, "coach", "working", "공부 계획 짜볼게")
+            exams = [e for e in self.planner.view()["events"] if e["kind"] == "시험" and e["date"] >= today.isoformat()]
+            out = self.steps["plan"](job.text, today, exams, material)
+            for todo in out["todos"]:
+                self.planner.add_todo(todo["text"], date=todo["date"])
+            self._set(job, "coach", "done", f"할 일 {len(out['todos'])}개로 계획 짰어! {out['reply']}".strip())
+        if "focus" in plan.steps:
+            running = self.planner.start_focus(plan.focus_minutes, task=plan.title)
+            self._set(job, "coach", "done", f"{running['minutes']}분 공부모드 시작! 끝나면 알려줄게")
+        self._make_outputs(job, material, only=outputs)
+
+    # ---- rab 도구가 쓰는 사무실 기능 ----
+    def say(self, job: Job, message: str) -> None:
+        self._set(job, "manager", "working", message)
+
+    def trace(self, job: Job, line: str) -> None:
+        with self.lock:
+            job.trace.append(line[:200])
+
+    def bring(self, job: Job, src: Path) -> dict:
+        copy = bring_copy(src, self.jobs_dir / job.id / "inputs")
+        url = self._url(copy)
+        with self.lock:
+            job.files.append(str(copy))
+            job.names.append(copy.name)
+            job.results.setdefault("files", []).append({"name": copy.name, "url": url})
+        return {"brought": copy.name, "url": url, "size": copy.stat().st_size}
+
+    def today_summary(self) -> dict:
+        v = self.planner.view()
+        with self.lock:
+            pending = [j for j in self.jobs.values() if j.status == "review"]
+        return {"date": f"{v['today']} ({v['weekday']})",
+                "할 일": [{"text": t["text"], "time": t["time"], "done": t["done"]} for t in v["todos"]],
+                "밀린 일": [{"text": t["text"], "date": t["date"]} for t in v["overdue"]],
+                "오늘 일정": [{"title": e["title"], "time": e["time"], "kind": e["kind"]} for e in v["today_events"]],
+                "다가오는 시험": [{"title": e["title"], "date": e["date"]} for e in v["upcoming"] if e["kind"] == "시험"][:3],
+                "dday": v["dday"], "focus": v["focus"], "오늘 공부(분)": v["stats"]["today"], "결재 대기": len(pending)}
+
+    def _pick(self, current: Job, statuses: tuple) -> list[Job]:
+        with self.lock:
+            jobs = [j for j in self.jobs.values() if j.id != current.id and j.status in statuses]
+        return sorted(jobs, key=lambda j: (j.no, j.id), reverse=True)
+
+    def jobs_summary(self, current: Job) -> dict:
+        row = lambda j: {"no": j.no, "title": j.title or j.text[:30], "status": j.status, "outputs": j.outputs}
+        with self.lock:
+            recent = sorted((j for j in self.jobs.values() if j.id != current.id), key=lambda j: (j.no, j.id), reverse=True)[:5]
+        return {"결재 대기": [row(j) for j in self._pick(current, ("review",))],
+                "하는 중": [row(j) for j in self._pick(current, ACTIVE)], "최근": [row(j) for j in recent]}
+
+    def act_on_jobs(self, current: Job, action: str, selector: str, comment: str = "") -> dict:
+        statuses = {"approve": ("review",), "reject": ("review",), "cancel": ACTIVE,
+                    "rerun": ("done", "error", "needs_input", "cancelled", "review")}.get(action)
+        if statuses is None:
+            raise OfficeError("approve·reject·cancel·rerun 중 하나예요.")
+        jobs = self._pick(current, statuses)
+        digits = re.sub(r"\D", "", selector)
+        if selector == "all":
+            chosen = jobs
+        elif digits:
+            chosen = [j for j in jobs if j.no == int(digits)]
+        elif selector in ("", "latest"):
+            chosen = jobs[:1]
+        else:
+            chosen = [j for j in jobs if selector in (j.title or j.text)][:1]
+        if not chosen:
+            raise OfficeError("해당하는 작업이 없어요.")
+        done, errors = [], []
+        for j in chosen:
+            try:
+                {"approve": lambda: self.approve(j.id, comment), "reject": lambda: self.reject(j.id, comment),
+                 "cancel": lambda: self.cancel(j.id), "rerun": lambda: self.retry(j.id)}[action]()
+                done.append(f"No.{j.no:04d} {j.title or j.text[:20]}")
+            except OfficeError as e:
+                errors.append(f"No.{j.no:04d}: {e}")
+        if errors and not done:
+            raise OfficeError(" / ".join(errors))
+        return {"done": done, "errors": errors}
+
+    def check_todo(self, text: str) -> dict:
+        key = re.sub(r"\s+", "", text)
+        v = self.planner.view()
+        for t in [*v["todos"], *v["overdue"]]:
+            name = re.sub(r"\s+", "", t["text"])
+            if not t["done"] and key and (key in name or name in key):
+                self.planner.update_todo(t["id"], {"done": True})
+                return {"checked": t["text"]}
+        raise OfficeError(f"'{text}' 할 일을 못 찾았어요.")
 
     def _ask(self, job: Job, message: str) -> None:
         self._update(job, status="needs_input", reply=message)
         self._set(job, "manager", "done", message)
 
-    def _make_outputs(self, job: Job, material: Material | None, feedback: str = "") -> None:
+    def _make_outputs(self, job: Job, material: Material | None, feedback: str = "", only: list | None = None) -> None:
         job_dir, o = self.jobs_dir / job.id, job.options
-        for step in job.outputs:
+        for step in job.outputs if only is None else only:
             role, start, end, key = OUTPUT_STAFF[step]
             self._set(job, role, "working", start.format(**o))
             kw = {"say": self._sayer(job, role), "feedback": feedback}
@@ -506,9 +665,12 @@ class Office:
             self._make_outputs(job, self.material_of(job.id), feedback)
             self._update(job, status="review")
             self._set(job, "manager", "done", f"{job.revision}번째 수정 끝! 다시 결재 올렸어")
+        except Cancelled:
+            self._stopped(job, "review")  # 고치다 멈추면 이전 결과물로 결재할 수 있다
         except Exception as e:
             self._fail(job, e, "review")  # 고치다 실패해도 이전 결과물로 결재는 할 수 있다
         finally:
+            self.stopping.discard(job.id)
             self._update(job, seconds=round(time.monotonic() - started))
             self._save(job)
             self._notify(job)
