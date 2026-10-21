@@ -753,7 +753,7 @@ function settingsView(ctx) {
       media.missing.length
         ? h("p", { class: "err" }, `아직 설치 안 됨: ${media.missing.join(", ")} → 프로젝트 폴더의 install_gen.ps1을 실행하세요 (약 37GB).`)
         : h("p", { class: "muted" }, `설치됨 · ${media.running ? "켜져 있음" : "시킬 때 켜져요 (처음 1~2분)"} · 그림 1분쯤, 영상 몇 분`),
-      !media.missing.length && h("a", { class: "btn alt", href: "http://127.0.0.1:8188/", target: "_blank", rel: "noopener" }, "ComfyUI 직접 열기"));
+      media.running && h("a", { class: "btn alt", href: "http://127.0.0.1:8188/", target: "_blank", rel: "noopener" }, "ComfyUI 직접 열기"));
   }
 
   function memoryBox() {

@@ -67,7 +67,7 @@ powershell -ExecutionPolicy Bypass -File install_gen.ps1
 영상은 Krea-2가 첫 장면을 그리고 Wan2.2가 그 그림을 움직인다(글로만 만들 때보다 훨씬 깨끗하다). 첫 장면 그림도 작업 폴더에 남는다.
 그림은 정사각형 1024×1024(세로·가로도 됨) 1~4장, 영상은 832×480(세로·정사각형도 됨). 결과는 카드·대표실에 바로 보이고, 결재가 있어야 완료, 반려하면 의견대로 다시 그린다.
 그래픽 메모리(8GB)를 나눠 쓰려고 그리기 전에 Ollama 모델을 내리고, 다 그리면 ComfyUI 메모리를 비운다. ComfyUI는 처음 시킬 때 켜지고(1~2분) 퇴근하면 같이 꺼진다.
-설정 → 이미지·동영상 AI에서 설치 상태를 보고, [ComfyUI 직접 열기]로 ComfyUI 화면도 쓸 수 있다.
+설정 → 이미지·동영상 AI에서 설치 상태를 보고, ComfyUI가 켜져 있으면 [ComfyUI 직접 열기]로 ComfyUI 화면도 쓸 수 있다.
 실측(2026-10-22, OMEN 16 RTX 5060 8GB): 그림 1장 약 30초 · 2장 58초, 실장님에게 시키면 1장 45초 · 세로 2장 66초, 영상 2초 2분 25초, 실장님에게 3초 영상 3분 30초.
 라이선스: Krea-2는 [Krea 2 Community License](https://huggingface.co/krea/Krea-2-Turbo/blob/main/LICENSE.pdf)(상업적으로 쓰기 전에 확인), Wan2.2는 Apache 2.0.
 
