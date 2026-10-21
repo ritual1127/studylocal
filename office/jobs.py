@@ -78,6 +78,7 @@ class Job:
     finished: str = ""
     seconds: int = 0                                    # 마지막으로 일한 시간
     names: list[str] = field(default_factory=list)      # 올린 파일의 원래 이름 (보여주기만, 경로엔 안 씀)
+    no: int = 0                                         # 작업 번호 (1부터, 1단계 작업은 0)
 
     @property
     def outputs(self) -> list[str]:
@@ -119,6 +120,11 @@ class Office:
             saved = {}
         saved = saved if isinstance(saved, dict) else {}
         self.auto = {k: saved[k] if isinstance(saved.get(k), bool) else v for k, v in AUTO_DEFAULT.items()}
+        self.counter_path = self.root / "counter.txt"
+        try:
+            self.counter = int(self.counter_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            self.counter = sum(1 for _ in self.jobs_dir.iterdir())  # 번호 파일이 없으면 지금까지 작업 수부터
 
     # ---- 접수 ----
     def new_job_dir(self) -> tuple[str, Path]:
@@ -130,6 +136,9 @@ class Office:
         job = Job(id=job_id, text=text, files=[str(f) for f in files], ref=ref, created=_now(),
                   names=list(names or [Path(f).name for f in files]))
         with self.lock:
+            self.counter += 1
+            job.no = self.counter
+            self.counter_path.write_text(str(self.counter), encoding="utf-8")
             self.jobs[job_id] = job
         self.queue.put(("job", job_id))
 

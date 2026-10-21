@@ -1,219 +1,103 @@
-import { SPRITES } from "./sprites.js";
+import { $, act, ddayText, h, minutesText, put, store, toast } from "./ui.js";
+import { animateOffice, createViews, jobTitle } from "./views.js";
 
-const STAFF = ["manager", "scanner", "librarian", "designer", "examiner", "deployer"];
-const NAMES = { manager: "실장", scanner: "스캐너", librarian: "사서", designer: "디자이너", examiner: "출제위원", deployer: "배포담당" };
-const LIGHT = { idle: "쉬는 중", working: "일하는 중", done: "끝", error: "에러" };
-const BADGE = { queued: "대기", running: "진행 중", done: "완료", error: "에러", needs_input: "되물음" };
-const ACCEPT = [".jpg", ".jpeg", ".png", ".webp", ".pdf"];
-const STILL = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const TABS = [["office", "사무실"], ["vault", "보관함"], ["today", "오늘"], ["schedule", "일정"], ["ceo", "대표실"], ["settings", "설정"]];
+const MAX_UPLOAD = 50_000_000;
 
-const $ = (sel) => document.querySelector(sel);
-const colorOf = (role) => `var(--c${STAFF.indexOf(role) + 1})`;
-const isFile = (url) => typeof url === "string" && url.startsWith("/files/");
+let state = null;
+let ref = null; // [이 자료로 더 하기]로 고른 작업
+const ctx = { state: () => state, refresh: () => poll(false), rerender, openTab, setRef };
+const views = createViews(ctx);
 
-// 작은 DOM 도우미: 글자는 전부 텍스트 노드로 넣는다 (innerHTML 안 씀)
-function h(tag, props = {}, ...kids) {
-  const el = document.createElement(tag);
-  for (const [key, value] of Object.entries(props)) {
-    if (value == null || value === false) continue;
-    if (key.startsWith("on")) el.addEventListener(key.slice(2), value);
-    else el.setAttribute(key, value);
-  }
-  el.append(...kids.flat().filter(Boolean));
-  return el;
+// ---- 탭과 나눠 보기 ----
+const wide = matchMedia("(min-width: 1000px)");
+const panes = [...document.querySelectorAll(".pane")];
+let layout = store.get("ritual-layout", null);
+if (!layout || !Array.isArray(layout.tabs) || layout.tabs.some((t) => !views[t])) {
+  layout = { split: innerWidth >= 1200, tabs: ["office", "vault"], active: 0 };
 }
+const isSplit = () => layout.split && wide.matches;
+const visibleTabs = () => (isSplit() ? layout.tabs : layout.tabs.slice(0, 1));
 
-async function post(url, body) {
-  const r = await fetch(url, { method: "POST", body });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || `오류가 났어 (${r.status})`);
-  return data;
-}
-
-// ---- 책상과 캐릭터 ----
-const desks = {};
-for (const role of STAFF) {
-  const say = h("p", { class: "say" });
-  const bubble = h("div", { class: "bubble empty" }, say);
-  const canvas = h("canvas", { class: "sprite", width: 16, height: 16, "aria-hidden": "true" });
-  const light = h("i", { class: "light idle", role: "img", "aria-label": LIGHT.idle });
-  $("#office").append(h("div", { class: "desk", style: `--who: ${colorOf(role)}` },
-    bubble, canvas, h("div", { class: "table" }), h("p", { class: "plate" }, light, NAMES[role])));
-  desks[role] = { say, bubble, light, ctx: canvas.getContext("2d"), state: "idle", drawn: "" };
-}
-
-function draw(desk, sprite, frame, dy) {
-  const key = `${frame}:${dy}`;
-  if (desk.drawn === key) return;
-  desk.drawn = key;
-  desk.ctx.clearRect(0, 0, 16, 16);
-  sprite.frames[frame].forEach((row, y) => {
-    [...row].forEach((ch, x) => {
-      if (ch === ".") return;
-      desk.ctx.fillStyle = sprite.colors[ch];
-      desk.ctx.fillRect(x, y < 14 ? y + dy : y, 1, 1); // 키보드(14~15줄)는 안 움직임
-    });
+function renderLayout() {
+  const split = isSplit();
+  if (split && layout.tabs[0] === layout.tabs[1]) layout.tabs[1] = TABS.find(([id]) => id !== layout.tabs[0])[0];
+  document.body.classList.toggle("split", split);
+  panes[1].hidden = !split;
+  $("#split").setAttribute("aria-pressed", String(layout.split));
+  $("#split").hidden = !wide.matches;
+  panes.forEach((pane, i) => {
+    if (i === 1 && !split) return;
+    const current = layout.tabs[i];
+    pane.classList.toggle("active", split && layout.active === i);
+    pane.querySelector(".tabs").replaceChildren(...TABS.map(([id, label], n) => h("button", {
+      type: "button", role: "tab", class: "tab" + (id === current ? " on" : ""), "aria-selected": String(id === current),
+      title: `Alt + ${n + 1}`, onclick: () => openTab(id, i),
+    }, label, id === "ceo" ? h("span", { class: "tab-badge", hidden: true }) : null)));
+    const body = pane.querySelector(".pane-body");
+    if (body.firstChild !== views[current].el) {
+      body.replaceChildren(views[current].el);
+      views[current].show?.();
+    }
   });
+  store.set("ritual-layout", layout);
+  if (state) render(state);
 }
 
-function animate() {
-  const t = STILL ? 0 : performance.now();
-  for (const role of STAFF) {
-    const desk = desks[role];
-    const frame = desk.state === "working" ? Math.floor(t / 300) % 2 : 0;
-    const dy = desk.state === "idle" ? -(Math.floor(t / 1000) % 2) : 0;
-    draw(desk, SPRITES[role], frame, dy);
+function openTab(id, i = layout.active) {
+  if (!isSplit()) i = 0;
+  const other = 1 - i;
+  if (isSplit() && layout.tabs[other] === id) layout.tabs[other] = layout.tabs[i]; // 옆 창에 있던 탭이면 서로 바꾼다
+  layout.tabs[i] = id;
+  layout.active = i;
+  renderLayout();
+}
+
+panes.forEach((pane, i) => pane.addEventListener("pointerdown", () => {
+  if (isSplit() && layout.active !== i) {
+    layout.active = i;
+    panes.forEach((p, n) => p.classList.toggle("active", n === i));
+    store.set("ritual-layout", layout);
   }
-}
-setInterval(animate, 100);
-animate();
+}));
+$("#split").addEventListener("click", () => {
+  layout.split = !layout.split;
+  renderLayout();
+  toast(layout.split ? "화면을 둘로 나눴어. 창마다 탭을 골라봐" : "한 화면으로 합쳤어");
+});
+wide.addEventListener("change", renderLayout);
 
-// ---- 상태 그리기 ----
-let jobs = [];
-let busy = false;
-let cards = new Map(); // job id → { key, el }
-const armed = new Map(); // 배포 버튼을 한 번 누른 작업 → 해제 타이머
-const notes = new Map(); // job id → { msg, err, sig }
-const sig = (r) => `${r.deploy_url}|${r.deploy_error}`;
-
+// ---- 그리기 ----
 function render(s) {
   const status = $("#status");
   status.className = `status ${s.ollama ? "on" : "off"}`;
   status.textContent = s.ollama ? "AI 연결됨" : "Ollama 꺼짐";
-  $("#model").textContent = s.model;
-
-  for (const role of STAFF) {
-    const st = s.staff[role] ?? { state: "idle", say: "" };
-    const desk = desks[role];
-    desk.state = st.state;
-    desk.light.className = `light ${st.state}`;
-    desk.light.setAttribute("aria-label", LIGHT[st.state] ?? st.state);
-    if (desk.say.textContent !== st.say) {
-      desk.say.textContent = st.say;
-      desk.say.title = st.say;
-    }
-    desk.bubble.classList.toggle("empty", !st.say);
+  $("#model").textContent = `${s.ai === "careful" ? "꼼꼼" : "빠름"} · ${s.model}`;
+  const p = s.planner;
+  $("#dday").hidden = !p.dday;
+  if (p.dday) $("#dday").textContent = `${p.dday.title} ${ddayText(p.dday.days)}`;
+  $("#studied").textContent = `오늘 공부 ${minutesText(p.stats.today)}`;
+  const pending = s.jobs.filter((j) => j.status === "review").length;
+  for (const badge of document.querySelectorAll(".tab-badge")) {
+    badge.hidden = !pending;
+    badge.textContent = pending;
   }
-
-  jobs = s.jobs;
-  busy = jobs.some((j) => j.status === "queued" || j.status === "running")
-    || Object.values(s.staff).some((st) => st.state === "working");
-  renderJobs();
-  renderLog(jobs[0]?.log ?? []);
+  for (const tab of visibleTabs()) views[tab].update(s);
+  tickFocus();
 }
 
-function card(job) {
-  const r = job.results ?? {};
-  const note = notes.get(job.id);
-  const actions = [];
-  if (isFile(r.pdf)) actions.push(h("a", { class: "btn", href: r.pdf, target: "_blank", rel: "noopener" }, "PDF 열기"));
-  if (isFile(r.quiz)) actions.push(h("a", { class: "btn", href: r.quiz, target: "_blank", rel: "noopener" }, "문제 미리보기"));
-  if (isFile(r.text)) actions.push(h("a", { class: "btn alt", href: r.text, target: "_blank", rel: "noopener" }, "텍스트"));
-  if (Object.keys(r).length) actions.push(h("button", { class: "btn alt", type: "button", onclick: () => act(job.id, "open") }, "폴더"));
-  if (isFile(r.quiz)) {
-    const on = armed.has(job.id);
-    actions.push(h("button", { class: on ? "btn armed" : "btn", type: "button", onclick: () => deploy(job.id) },
-      on ? "공개 링크로 올릴까? 한 번 더 누르면 배포" : "배포"));
-  }
-  const url = typeof r.deploy_url === "string" && r.deploy_url.startsWith("https://") ? r.deploy_url : null;
-  return h("article", { class: "card" },
-    h("header", { class: "card-head" },
-      h("h3", {}, job.title || job.text.slice(0, 30) || "첨부 파일 작업"),
-      h("span", { class: `badge ${job.status}` }, BADGE[job.status] ?? job.status)),
-    h("p", { class: "muted" }, job.created),
-    job.reply && h("p", { class: "reply" }, h("b", { style: `color: ${colorOf("manager")}` }, "실장 "), job.reply),
-    job.warnings?.length && h("ul", { class: "warn" }, job.warnings.map((w) => h("li", {}, w))),
-    job.error && h("p", { class: "err" }, job.error),
-    actions.length && h("div", { class: "actions" }, actions),
-    url && h("p", { class: "deployed" },
-      h("a", { href: url, target: "_blank", rel: "noopener" }, url),
-      h("button", { class: "btn alt", type: "button", onclick: (e) => copy(url, e.currentTarget) }, "복사")),
-    r.deploy_error && h("p", { class: "err" }, r.deploy_error),
-    note && note.sig === sig(r) && h("p", { class: note.err ? "err" : "muted" }, note.msg));
+function rerender() {
+  if (state) for (const tab of visibleTabs()) views[tab].update(state);
 }
 
-function renderJobs() {
-  const list = $("#jobs");
-  if (!jobs.length) {
-    cards = new Map();
-    list.replaceChildren(h("p", { class: "muted" }, "아직 결과가 없어. 아래에 명령을 적어줘!"));
-    return;
-  }
-  const sameOrder = jobs.length === list.children.length
-    && jobs.every((j, i) => cards.get(j.id)?.el === list.children[i]);
-  const next = new Map();
-  for (const job of jobs) {
-    // 일지(log)는 카드에 안 보이니 비교에서 뺀다 → 진행 중에도 카드 버튼이 그대로 남음
-    const key = JSON.stringify({ ...job, log: undefined }) + armed.has(job.id) + JSON.stringify(notes.get(job.id) ?? null);
-    const old = cards.get(job.id);
-    if (old && old.key === key) {
-      next.set(job.id, old);
-      continue;
-    }
-    const el = card(job);
-    if (sameOrder) old.el.replaceWith(el);
-    next.set(job.id, { key, el });
-  }
-  cards = next;
-  if (!sameOrder) list.replaceChildren(...jobs.map((j) => next.get(j.id).el));
-}
-
-let logKey = null;
-function renderLog(lines) {
-  const key = lines.join("\n");
-  if (key === logKey) return;
-  logKey = key;
-  const ol = $("#log");
-  if (!lines.length) {
-    ol.replaceChildren(h("li", { class: "muted" }, "아직 기록이 없어"));
-    return;
-  }
-  ol.replaceChildren(...lines.map((line) => {
-    const m = /^\[(.+?)\] ([\s\S]*)$/.exec(line);
-    const role = m && STAFF.find((r) => NAMES[r] === m[1]);
-    if (!role) return h("li", {}, line);
-    return h("li", {}, h("b", { style: `color: ${colorOf(role)}` }, `[${m[1]}]`), " ", m[2]);
-  }));
-  ol.scrollTop = ol.scrollHeight;
-}
-
-// ---- 카드 버튼 ----
-async function act(id, what, okMsg) {
-  const r = jobs.find((j) => j.id === id)?.results ?? {};
-  try {
-    await post(`/api/jobs/${encodeURIComponent(id)}/${what}`);
-    if (okMsg) notes.set(id, { msg: okMsg, err: false, sig: sig(r) });
-    else notes.delete(id);
-  } catch (e) {
-    notes.set(id, { msg: e.message, err: true, sig: sig(r) });
-  }
-  renderJobs();
-}
-
-function deploy(id) {
-  clearTimeout(armed.get(id));
-  if (!armed.has(id)) {
-    armed.set(id, setTimeout(() => { armed.delete(id); renderJobs(); }, 5000));
-    renderJobs();
-    return;
-  }
-  armed.delete(id);
-  act(id, "deploy", "배포담당한테 넘겼어. 잠깐만!");
-}
-
-async function copy(url, btn) {
-  try {
-    await navigator.clipboard.writeText(url);
-    btn.textContent = "복사됨!";
-  } catch {
-    btn.textContent = "복사 실패";
-  }
-  setTimeout(() => (btn.textContent = "복사"), 1500);
-}
+setInterval(() => {
+  if (visibleTabs().includes("office")) animateOffice(views.office);
+}, 100);
 
 // ---- 폴링 ----
 let quitting = false;
-async function poll() {
+let busy = false;
+async function poll(loop = true) {
   let s = null;
   try {
     const r = await fetch("/api/state", { cache: "no-store" });
@@ -223,10 +107,75 @@ async function poll() {
   }
   $("#downMsg").textContent = quitting ? "퇴근 완료! 이 창은 닫아도 돼" : "사무실 서버가 꺼졌어";
   $("#down").hidden = Boolean(s);
-  if (s) render(s);
-  setTimeout(poll, 1000);
+  if (s) {
+    state = s;
+    busy = s.jobs.some((j) => ["queued", "running", "revising"].includes(j.status));
+    render(s);
+  }
+  if (loop) setTimeout(poll, 1000);
 }
-poll();
+
+// ---- 공부모드 ----
+const focusBox = $("#focus");
+function openOverlay(el) {
+  el.hidden = false;
+  el.querySelector("[data-first]")?.focus();
+}
+function closeOverlays() {
+  for (const el of document.querySelectorAll(".overlay")) el.hidden = true;
+}
+for (const btn of document.querySelectorAll("[data-close]")) btn.addEventListener("click", closeOverlays);
+
+function openFocus() {
+  const todos = state?.planner.todos.filter((t) => !t.done) ?? [];
+  $("#focusPick").replaceChildren(h("option", { value: "" }, "할 일 안 고름"), ...todos.map((t) => h("option", { value: t.text }, t.text)));
+  openOverlay(focusBox);
+}
+async function startFocus(minutes, kind) {
+  const task = kind === "focus" ? $("#focusPick").value : "";
+  const res = await act("/api/focus", { minutes, task, kind }, kind === "focus" ? `${minutes}분 집중 시작! 화이팅` : `${minutes}분 쉬자`);
+  if (res) poll(false);
+}
+for (const btn of document.querySelectorAll("[data-focus]")) {
+  btn.addEventListener("click", () => startFocus(Number(btn.dataset.focus), btn.dataset.kind ?? "focus"));
+}
+$("#focusStop").addEventListener("click", async () => {
+  const res = await act("/api/focus/stop");
+  if (res) {
+    toast(res.minutes ? `${res.minutes}분 공부했어. 수고했어!` : "공부모드 껐어", "ok");
+    poll(false);
+  }
+});
+$("#focusBtn").addEventListener("click", openFocus);
+$("#focusChip").addEventListener("click", openFocus);
+
+function tickFocus() {
+  const f = state?.planner.focus;
+  const chip = $("#focusChip");
+  $("#focusRun").hidden = !f;
+  $("#focusSetup").hidden = Boolean(f);
+  if (!f) {
+    chip.hidden = true;
+    $("#focusClock").textContent = "25:00";
+    $("#focusTask").textContent = "할 일을 고르고 시작해. 창을 닫아도 시간은 계속 가";
+    return;
+  }
+  const left = Math.max(0, Math.round((new Date(f.end) - Date.now()) / 1000));
+  const clock = `${String(Math.floor(left / 60)).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}`;
+  chip.hidden = false;
+  chip.textContent = `${f.kind === "focus" ? "집중" : "쉬는 중"} ${clock}`;
+  $("#focusClock").textContent = clock;
+  $("#focusTask").textContent = f.kind === "focus" ? (f.task || "집중!") : "쉬는 시간. 물 한 잔 마셔";
+}
+setInterval(tickFocus, 250);
+
+// ---- 처음 온 사람 안내 ----
+if (!store.get("ritual-welcomed", false)) openOverlay($("#welcome"));
+$("#welcomeGo").addEventListener("click", () => {
+  store.set("ritual-welcomed", true);
+  closeOverlays();
+  $("#text").focus();
+});
 
 // ---- 퇴근 ----
 let quitTimer = null;
@@ -243,25 +192,34 @@ $("#quit").addEventListener("click", async (e) => {
   await fetch("/api/shutdown", { method: "POST" }).catch(() => {});
 });
 
-// ---- 명령 바 ----
+// ---- 지시 칸 ----
 const files = [];
 const showError = (msg) => ($("#barError").textContent = msg);
 
+function setRef(job) {
+  ref = { id: job.id, title: jobTitle(job) };
+  renderChips();
+  $("#text").focus();
+  toast(`'${ref.title}' 자료로 뭘 할지 적어줘 (예: 문제 10개, 암기카드, 번역)`);
+}
+
 function addFiles(list) {
-  const rejected = [];
+  const big = [];
   for (const f of list) {
-    const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase();
-    if (ACCEPT.includes(ext)) files.push(f);
-    else rejected.push(f.name);
+    if (f.size > MAX_UPLOAD) big.push(f.name);
+    else files.push(f);
   }
-  showError(rejected.length ? `사진(jpg·png·webp)이나 PDF만 받을 수 있어: ${rejected.join(", ")}` : "");
+  showError(big.length ? `50MB 넘는 파일은 못 올려: ${big.join(", ")}` : "");
   renderChips();
 }
 
 function renderChips() {
-  $("#chips").replaceChildren(...files.map((f, i) => h("span", { class: "chip" },
-    h("span", { title: f.name }, f.name),
-    h("button", { type: "button", "aria-label": `${f.name} 빼기`, onclick: () => { files.splice(i, 1); renderChips(); } }, "✕"))));
+  put($("#chips"),
+    ref && h("span", { class: "chip ref" }, h("span", { title: ref.title }, `자료: ${ref.title}`),
+      h("button", { type: "button", "aria-label": "고른 자료 빼기", onclick: () => { ref = null; renderChips(); } }, "✕")),
+    ...files.map((f, i) => h("span", { class: "chip" },
+      h("span", { title: f.name }, f.name),
+      h("button", { type: "button", "aria-label": `${f.name} 빼기`, onclick: () => { files.splice(i, 1); renderChips(); } }, "✕"))));
 }
 
 $("#attach").addEventListener("click", () => $("#pick").click());
@@ -284,14 +242,20 @@ $("#bar").addEventListener("submit", async (e) => {
   if (send.disabled) return;
   const form = new FormData();
   form.append("text", $("#text").value);
+  if (ref) form.append("ref", ref.id);
   for (const f of files) form.append("files", f);
   send.disabled = true;
   try {
-    await post("/api/command", form);
+    const res = await fetch("/api/command", { method: "POST", body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `오류가 났어 (${res.status})`);
     $("#text").value = "";
     files.length = 0;
+    ref = null;
     renderChips();
     showError("");
+    toast("실장한테 넘겼어!", "ok");
+    poll(false);
   } catch (err) {
     showError(err instanceof TypeError ? "사무실 서버에 못 보냈어." : err.message);
   } finally {
@@ -322,3 +286,28 @@ addEventListener("drop", (e) => {
   $("#drop").hidden = true;
   addFiles(e.dataTransfer.files);
 });
+
+// ---- 단축키 ----
+addEventListener("keydown", (e) => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName ?? "");
+  if (e.key === "Escape") {
+    closeOverlays();
+    return;
+  }
+  if (e.altKey && !e.ctrlKey && /^[1-6]$/.test(e.key)) {
+    e.preventDefault();
+    openTab(TABS[Number(e.key) - 1][0]);
+  } else if (e.altKey && e.code === "KeyS") {
+    e.preventDefault();
+    $("#split").click();
+  } else if (e.altKey && e.code === "KeyG") {
+    e.preventDefault();
+    openFocus();
+  } else if (e.key === "/" && !typing) {
+    e.preventDefault();
+    $("#text").focus();
+  }
+});
+
+renderLayout();
+poll();

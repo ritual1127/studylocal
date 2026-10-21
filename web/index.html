@@ -15,33 +15,76 @@
       <h1>공부 사무실</h1>
       <span id="status" class="status">연결 중…</span>
       <span id="model" class="model"></span>
-      <button id="quit" class="btn" type="button">퇴근</button>
+      <span id="dday" class="pill hot" hidden></span>
+      <span id="studied" class="pill"></span>
+      <button id="focusChip" class="pill focus-chip" type="button" hidden></button>
+      <span class="top-tools">
+        <button id="focusBtn" class="btn alt" type="button" title="Alt + G">공부모드</button>
+        <button id="split" class="btn alt" type="button" aria-pressed="false" title="Alt + S">나눠 보기</button>
+        <button id="quit" class="btn" type="button">퇴근</button>
+      </span>
     </header>
 
-    <main id="office" class="office panel" aria-label="사무실"></main>
-
-    <aside class="vault panel">
-      <h2>결과 보관함</h2>
-      <div id="jobs" class="jobs"></div>
-    </aside>
-
-    <section class="log panel">
-      <h2>업무 일지</h2>
-      <ol id="log"></ol>
-    </section>
+    <div class="panes">
+      <section class="pane panel">
+        <nav class="tabs" role="tablist" aria-label="왼쪽 화면 탭"></nav>
+        <div class="pane-body"></div>
+      </section>
+      <section class="pane panel" hidden>
+        <nav class="tabs" role="tablist" aria-label="오른쪽 화면 탭"></nav>
+        <div class="pane-body"></div>
+      </section>
+    </div>
 
     <form id="bar" class="bar panel">
       <p id="barError" class="bar-error" role="alert"></p>
       <div id="chips" class="chips"></div>
-      <textarea id="text" name="text" rows="2" aria-label="명령"
-        placeholder="예) 이 프린트 예쁘게 PDF로 만들어줘 / 운수 좋은 날 가져와서 문제 10개 만들어줘"></textarea>
+      <textarea id="text" name="text" rows="2" aria-label="업무 지시"
+        placeholder="예) 이 프린트 PDF로 / 광합성 조사해서 암기카드 / 이 한글 파일 분석해줘 / 내일 3시 수학 학원 / 25분 공부모드"></textarea>
       <button id="attach" class="btn alt" type="button">첨부</button>
-      <input id="pick" type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" multiple hidden>
-      <button id="send" class="btn" type="submit">보내기</button>
+      <input id="pick" type="file" multiple hidden>
+      <button id="send" class="btn" type="submit">지시</button>
     </form>
   </div>
 
-  <div id="drop" class="drop" hidden>여기에 놓으면 첨부돼</div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="drop" class="drop" hidden>여기에 놓으면 첨부돼 (사진·PDF·한글·워드·PPT·엑셀·글자 파일)</div>
+
+  <div id="focus" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="focusTitle">
+    <div class="overlay-box focus-box">
+      <button class="x close" type="button" data-close data-first aria-label="닫기">✕</button>
+      <h2 id="focusTitle">공부모드</h2>
+      <p id="focusTask" class="focus-task"></p>
+      <p id="focusClock" class="focus-clock" aria-live="off">25:00</p>
+      <div id="focusSetup">
+        <label class="row"><span>할 일</span><select id="focusPick" class="input"></select></label>
+        <div class="actions center">
+          <button class="btn" type="button" data-focus="25">25분 집중</button>
+          <button class="btn" type="button" data-focus="50">50분 집중</button>
+          <button class="btn alt" type="button" data-focus="5" data-kind="break">5분 쉬기</button>
+          <button class="btn alt" type="button" data-focus="10" data-kind="break">10분 쉬기</button>
+        </div>
+      </div>
+      <div id="focusRun" class="actions center" hidden>
+        <button id="focusStop" class="btn alt" type="button">그만하기</button>
+      </div>
+      <p class="muted">끝나면 코치가 PC·폰으로 알려줘. 공부한 시간은 '오늘' 탭에 쌓여.</p>
+    </div>
+  </div>
+
+  <div id="welcome" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
+    <div class="overlay-box">
+      <h2 id="welcomeTitle">ritual의 공부 사무실에 온 걸 환영해!</h2>
+      <ol class="steps">
+        <li><b>일 시키기</b> 아래 지시 칸에 말로: "이 프린트 PDF로", "광합성 조사해서 암기카드", "내일 3시 학원"</li>
+        <li><b>파일 올리기</b> 사진·PDF·한글·워드·PPT·엑셀 뭐든 끌어다 놓으면 직원들이 읽고 분석해</li>
+        <li><b>대표 결재</b> 결과물은 대표실에서 승인해야 완료돼. 자동 승인 규칙도 정할 수 있어</li>
+        <li><b>나눠 보기</b> 탭 두 개를 나란히. 단축키는 설정 탭에 있어</li>
+      </ol>
+      <button id="welcomeGo" class="btn" type="button" data-first>시작하기</button>
+    </div>
+  </div>
+
   <div id="down" class="down" hidden>
     <p id="downMsg">사무실 서버가 꺼졌어</p>
     <small>바탕화면의 공부 사무실 아이콘으로 다시 켜줘</small>

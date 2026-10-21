@@ -284,3 +284,13 @@ def test_stats_for_ceo_office(make_office):
     assert s["pending"] == 1 and s["today_done"] == 2 and s["approval_rate"] == 50 and s["auto_approved"] == 1
     assert s["staff"]["designer"] == 2 and s["staff"]["scanner"] == 2 and s["staff"]["tutor"] == 1
     assert s["staff"]["manager"] == 3 and s["study_week"] == 0
+
+def test_jobs_get_running_numbers_that_survive_restart(make_office, tmp_path):
+    office = make_office()
+    a = run(office, "안녕")
+    b = run(office, "PDF로", ["00.jpg"])
+    assert (a.no, b.no) == (1, 2)
+    again = Office(tmp_path)
+    j, _ = again.new_job_dir()
+    again.submit(j, "x", [])
+    assert again.jobs[j].no == 3
