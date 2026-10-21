@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__ · ritual 암기카드</title>
+<link rel="stylesheet" href="__GALMURI_CSS__">
+<style>
+:root { --c1:#9337FD; --c2:#E036F0; --c3:#FC34CA; --c4:#FD389C; --c5:#FD633E; --c6:#FC7135;
+        --bg:#14111f; --panel:#201a33; --line:#3b2f5c; --ink:#f3eefe; --muted:#a99cc9; --ok:#4ade80; --err:#ff4d6d; }
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { min-height: 100vh; background: var(--bg); color: var(--ink); font-family: "Galmuri11", "Malgun Gothic", sans-serif;
+       background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+       background-size: 32px 32px; background-position: -1px -1px; padding: 24px 16px 48px; }
+main { max-width: 640px; margin: 0 auto; }
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.brand { color: var(--c3); font-size: 18px; }
+.tag { font-size: 12px; color: var(--muted); }
+h1 { font-size: 20px; line-height: 1.4; margin: 0 0 16px; text-shadow: 3px 3px 0 #000; overflow-wrap: anywhere; }
+.stats { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; font-size: 13px; }
+.stats span { padding: 2px 8px; border: 2px solid #000; background: var(--panel); }
+.stats .k { color: var(--ok); } .stats .u { color: var(--err); }
+.blocks { display: flex; gap: 3px; margin-bottom: 16px; }
+.blocks span { flex: 1; height: 10px; background: var(--line); }
+.blocks .known { background: var(--ok); } .blocks .unknown { background: var(--err); } .blocks .now { background: var(--ink); }
+.card { position: relative; min-height: 260px; display: grid; place-items: center; text-align: center; padding: 28px 24px;
+        background: var(--panel); border: 4px solid #000; box-shadow: 6px 6px 0 #000; cursor: pointer; user-select: none;
+        font-size: 24px; line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; }
+.card.back { background: #1d2a3a; border-color: var(--c3); font-size: 19px; }
+.card .side { position: absolute; top: 10px; left: 12px; font-size: 12px; color: var(--muted); }
+.card .hint { position: absolute; bottom: 10px; right: 12px; font-size: 12px; color: var(--muted); }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+.tools { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+button { font: inherit; color: var(--ink); background: var(--bg); border: 4px solid #000; box-shadow: 4px 4px 0 #000;
+         padding: 12px 14px; cursor: pointer; }
+button:hover { border-color: var(--c3); }
+button:active { transform: translate(4px, 4px); box-shadow: none; }
+button:focus-visible, .card:focus-visible { outline: 4px solid var(--c3); outline-offset: 2px; }
+.no { background: #3d1220; } .yes { background: #12351f; }
+.small { padding: 6px 10px; font-size: 13px; }
+.done { text-align: center; padding: 28px; background: var(--panel); border: 4px solid #000; box-shadow: 6px 6px 0 #000; }
+.done .big { font-size: 44px; margin: 8px 0; text-shadow: 4px 4px 0 var(--c1); }
+.hidden { display: none !important; }
+footer { margin-top: 24px; text-align: center; font-size: 12px; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .card { transition: transform .12s steps(3); } .card.flip { transform: scaleX(0.04); } }
+</style>
+</head>
+<body>
+<main>
+  <header><span class="brand">ritual 암기카드</span><span class="tag" id="count"></span></header>
+  <h1>__TITLE__</h1>
+  <div class="stats"><span class="k" id="known"></span><span class="u" id="unknown"></span><span id="left"></span></div>
+  <div class="blocks" id="blocks" aria-hidden="true"></div>
+
+  <section id="play">
+    <div class="card" id="card" tabindex="0" role="button" aria-live="polite">
+      <span class="side" id="side">앞면</span><span id="face"></span><span class="hint">눌러서 뒤집기 · Space</span>
+    </div>
+    <div class="row">
+      <button class="no" id="no" type="button">✗ 몰라요 (←)</button>
+      <button class="yes" id="yes" type="button">✓ 알아요 (→)</button>
+    </div>
+    <div class="tools">
+      <button class="small" id="shuffle" type="button">섞기</button>
+      <button class="small" id="restart" type="button">처음부터</button>
+    </div>
+  </section>
+
+  <section id="finish" class="done hidden">
+    <div>한 바퀴 끝!</div>
+    <div class="big" id="score"></div>
+    <p id="cheer"></p>
+    <div class="tools" style="justify-content:center">
+      <button id="again-unknown" type="button">모르는 카드만 다시</button>
+      <button id="again-all" type="button">전체 다시</button>
+    </div>
+  </section>
+  <footer>ritual의 공부 사무실 · 암기담당이 만들었어</footer>
+</main>
+<script id="deck-data" type="application/json">__DECK_JSON__</script>
+<script>
+const deck = JSON.parse(document.getElementById("deck-data").textContent);
+const $ = (id) => document.getElementById(id);
+const KEY = "ritual-cards:" + location.pathname;
+let order = [], pos = 0, back = false, marks = {};
+
+function load() { try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { return {}; } }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(marks)); } catch {} }
+
+function start(indexes) { order = indexes; pos = 0; back = false; $("play").classList.remove("hidden"); $("finish").classList.add("hidden"); show(); }
+
+function show() {
+  const total = deck.cards.length;
+  const known = Object.values(marks).filter((m) => m === "k").length;
+  const unknown = Object.values(marks).filter((m) => m === "u").length;
+  $("count").textContent = total + "장";
+  $("known").textContent = "알아요 " + known;
+  $("unknown").textContent = "몰라요 " + unknown;
+  $("left").textContent = "이번 바퀴 남음 " + Math.max(0, order.length - pos);
+  $("blocks").replaceChildren(...order.map((i, n) => {
+    const s = document.createElement("span");
+    s.className = n === pos ? "now" : marks[i] === "k" ? "known" : marks[i] === "u" ? "unknown" : "";
+    return s;
+  }));
+  if (pos >= order.length) return finish();
+  const card = deck.cards[order[pos]];
+  $("card").classList.toggle("back", back);
+  $("side").textContent = back ? "뒷면" : "앞면";
+  $("face").textContent = back ? card.back : card.front;
+}
+
+function flip() {
+  const el = $("card");
+  el.classList.add("flip");
+  setTimeout(() => { back = !back; show(); el.classList.remove("flip"); }, 120);
+}
+
+function mark(value) {
+  if (pos >= order.length) return;
+  marks[order[pos]] = value; save();
+  pos++; back = false; show();
+}
+
+function finish() {
+  $("play").classList.add("hidden");
+  $("finish").classList.remove("hidden");
+  const known = order.filter((i) => marks[i] === "k").length;
+  $("score").textContent = known + " / " + order.length;
+  $("cheer").textContent = known === order.length ? "완벽해! 다 외웠어" : "몰라요 카드만 한 번 더 보자!";
+  $("again-unknown").classList.toggle("hidden", known === order.length);
+}
+
+$("card").onclick = flip;
+$("card").onkeydown = (e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); flip(); } };
+$("no").onclick = () => mark("u");
+$("yes").onclick = () => mark("k");
+$("shuffle").onclick = () => { const rest = order.slice(pos); for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; } order = order.slice(0, pos).concat(rest); back = false; show(); };
+$("restart").onclick = () => { marks = {}; save(); start(deck.cards.map((_, i) => i)); };
+$("again-unknown").onclick = () => start(deck.cards.map((_, i) => i).filter((i) => marks[i] !== "k"));
+$("again-all").onclick = () => start(deck.cards.map((_, i) => i));
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "BUTTON") return;
+  if (e.key === "ArrowLeft") mark("u");
+  if (e.key === "ArrowRight") mark("k");
+  if (e.key === " " && e.target === document.body) { e.preventDefault(); flip(); }
+});
+marks = load();
+start(deck.cards.map((_, i) => i));
+</script>
+</body>
+</html>

@@ -33,8 +33,12 @@ sections는 자료의 흐름 순서대로, points는 짧은 문장으로, highli
 key_terms에는 자료에 나온 용어만 넣고, summary는 3~5줄로 쓴다. JSON으로만 답한다."""
 
 
-def make_note(material: Material, llm=chat_json) -> dict:
-    note = llm(NOTE_SYSTEM, clip(material.markdown), NOTE_SCHEMA, temperature=0.2)
+def with_feedback(text: str, feedback: str) -> str:
+    return f"{text}\n\n[대표 수정 요청] {feedback}" if feedback else text
+
+
+def make_note(material: Material, llm=chat_json, feedback: str = "") -> dict:
+    note = llm(NOTE_SYSTEM, with_feedback(clip(material.markdown), feedback), NOTE_SCHEMA, temperature=0.2)
     if not note.get("sections"):
         raise OfficeError("정리할 내용이 없어.")
     return note
@@ -88,9 +92,9 @@ def html_to_pdf(html_path: Path, pdf_path: Path) -> None:
         raise OfficeError(f"PDF 만들기 실패: {last}")
 
 
-def make_pdf(material: Material, job_dir: Path, llm=chat_json, say=quiet) -> Path:
+def make_pdf(material: Material, job_dir: Path, llm=chat_json, say=quiet, feedback: str = "") -> Path:
     say("노트 구조 잡는 중")
-    note = make_note(material, llm=llm)
+    note = make_note(material, llm=llm, feedback=feedback)
     html_path = job_dir / "note.html"
     html_path.write_text(render_note_html(note, material), encoding="utf-8")
     say("PDF 인쇄 중")

@@ -6,6 +6,7 @@ from pathlib import Path
 from office import Material, OfficeError, fill, quiet
 from office.config import GALMURI_CSS, WEB
 from office.llm import chat_json, clip
+from office.note import with_feedback
 
 QUIZ_SCHEMA = {
     "type": "object",
@@ -80,9 +81,9 @@ def validate_quiz(raw: dict) -> dict:
     return {"title": str(raw.get("title") or "").strip() or "문제", "questions": questions}
 
 
-def make_quiz(material: Material, count: int, llm=chat_json) -> dict:
+def make_quiz(material: Material, count: int, llm=chat_json, feedback: str = "") -> dict:
     source = material.markdown + (f"\n\n[원문]\n{material.original}" if material.original else "")
-    user = f"문제 수: {count}\n\n{clip(source)}"
+    user = with_feedback(f"문제 수: {count}\n\n{clip(source)}", feedback)
     try:
         quiz = validate_quiz(llm(QUIZ_SYSTEM, user, QUIZ_SCHEMA, temperature=0.3))
     except OfficeError:
@@ -108,8 +109,9 @@ def save_quiz(job_dir: Path, quiz: dict) -> Path:
     return index
 
 
-def make_quiz_page(material: Material, count: int, job_dir: Path, llm=chat_json, say=quiet) -> Path:
+def make_quiz_page(material: Material, count: int, job_dir: Path, llm=chat_json, say=quiet,
+                   feedback: str = "") -> Path:
     say(f"문제 {count}개 내는 중")
-    quiz = make_quiz(material, count, llm=llm)
+    quiz = make_quiz(material, count, llm=llm, feedback=feedback)
     say(f"{len(quiz['questions'])}문제 완성")
     return save_quiz(job_dir, quiz)

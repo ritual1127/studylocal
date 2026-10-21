@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__ · ritual 마인드맵</title>
+<link rel="stylesheet" href="__GALMURI_CSS__">
+<style>
+:root { --c1:#9337FD; --c2:#E036F0; --c3:#FC34CA; --c4:#FD389C; --c5:#FD633E; --c6:#FC7135;
+        --bg:#14111f; --panel:#201a33; --line:#3b2f5c; --ink:#f3eefe; --muted:#a99cc9; }
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font-family: "Galmuri11", "Malgun Gothic", sans-serif; padding: 16px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: 1400px; margin: 0 auto 12px; }
+.brand { color: var(--c3); }
+button { font: inherit; color: var(--ink); background: var(--c1); border: 4px solid #000; box-shadow: 4px 4px 0 #000; padding: 6px 12px; cursor: pointer; }
+button:active { transform: translate(4px, 4px); box-shadow: none; }
+.wrap { max-width: 1400px; margin: 0 auto; overflow: hidden; border: 4px solid #000; box-shadow: 6px 6px 0 #000;
+        background-color: #1b1630; background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 24px 24px; }
+.map { position: relative; width: 1400px; height: 900px; transform-origin: 0 0; }
+svg { position: absolute; inset: 0; }
+.node { position: absolute; transform: translate(-50%, -50%); text-align: center; border: 4px solid #000; box-shadow: 4px 4px 0 #000;
+        padding: 6px 10px; background: var(--panel); max-width: 210px; line-height: 1.35; word-break: keep-all; overflow-wrap: anywhere; }
+.center { background: var(--c1); color: #fff; font-size: 26px; padding: 14px 20px; max-width: 280px; text-shadow: 2px 2px 0 #000; }
+.branch { font-size: 18px; color: #fff; background: var(--color); }
+.leaf { font-size: 14px; border-color: var(--color); }
+.leaf small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 12px; }
+@media print {
+  @page { size: A4 landscape; margin: 8mm; }
+  body { background: #fff; color: #000; padding: 0; }
+  header button, footer { display: none; }
+  .wrap { border: 0; box-shadow: none; background: #fff; }
+  .node { box-shadow: none; }
+  .leaf { background: #fff; color: #000; }
+  .leaf small { color: #444; }
+}
+</style>
+</head>
+<body>
+<header><span class="brand">ritual 마인드맵 · __TITLE__</span><button id="print" type="button">인쇄 / PDF로 저장</button></header>
+<div class="wrap" id="wrap"><div class="map" id="map"><svg id="lines" width="1400" height="900" aria-hidden="true"></svg></div></div>
+<footer>ritual의 공부 사무실 · 정리왕이 그렸어</footer>
+<script id="tree-data" type="application/json">__TREE_JSON__</script>
+<script>
+const tree = JSON.parse(document.getElementById("tree-data").textContent);
+const W = 1400, H = 900, CX = W / 2, CY = H / 2;
+const COLORS = ["#9337FD", "#E036F0", "#FC34CA", "#FD389C", "#FD633E", "#FC7135", "#38bdf8", "#4ade80"];
+const map = document.getElementById("map"), svg = document.getElementById("lines");
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+function line(x1, y1, x2, y2, color, width) {
+  const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  Object.entries({ x1, y1, x2, y2, stroke: color, "stroke-width": width, "stroke-linecap": "square" })
+    .forEach(([k, v]) => l.setAttribute(k, v));
+  svg.append(l);
+}
+
+function node(cls, x, y, color, label, details) {
+  const el = document.createElement("div");
+  el.className = "node " + cls;
+  el.style.left = clamp(x, 110, W - 110) + "px";
+  el.style.top = clamp(y, 40, H - 40) + "px";
+  if (color) el.style.setProperty("--color", color);
+  el.append(label);
+  for (const d of details || []) { const s = document.createElement("small"); s.textContent = d; el.append(s); }
+  map.append(el);
+}
+
+const n = tree.branches.length;
+tree.branches.forEach((b, i) => {
+  const color = COLORS[i % COLORS.length];
+  const a = -Math.PI / 2 + (2 * Math.PI * i) / n;
+  const bx = CX + Math.cos(a) * 300, by = CY + Math.sin(a) * 200;
+  line(CX, CY, bx, by, color, 8);
+  const m = b.children.length, spread = Math.min((2 * Math.PI / n) * 0.85, 1.3);
+  b.children.forEach((c, j) => {
+    const ca = a + (m === 1 ? 0 : spread * (j / (m - 1) - 0.5));
+    const x = clamp(CX + Math.cos(ca) * 560, 110, W - 110), y = clamp(CY + Math.sin(ca) * 370, 40, H - 40);
+    line(bx, by, x, y, color, 4);
+    node("leaf", x, y, color, c.label, c.details);
+  });
+  node("branch", bx, by, color, b.label);
+});
+node("center", CX, CY, null, tree.center);
+
+function fit() {
+  const s = Math.min(1, document.getElementById("wrap").clientWidth / W);
+  map.style.transform = "scale(" + s + ")";
+  document.getElementById("wrap").style.height = H * s + "px";
+}
+addEventListener("resize", fit);
+addEventListener("beforeprint", () => { map.style.transform = "scale(0.72)"; document.getElementById("wrap").style.height = H * 0.72 + "px"; });
+addEventListener("afterprint", fit);
+document.getElementById("print").onclick = () => print();
+fit();
+</script>
+</body>
+</html>
