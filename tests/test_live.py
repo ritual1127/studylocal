@@ -46,7 +46,9 @@ def test_phase2_office_live(tmp_path):
             self.sent.append(title)
             return []
 
-    office = Office(tmp_path / "out", planner=Planner(tmp_path / "planner.json"), notifier=Quiet())
+    from office.plan import route
+    # 실장 라우터 + 직원 파이프라인 실측 (rab 에이전트는 test_rab_agent_live)
+    office = Office(tmp_path / "out", route=route, planner=Planner(tmp_path / "planner.json"), notifier=Quiet())
     shot = tmp_path / "handout.png"
     browser = next(p for p in BROWSERS if p.exists())
     subprocess.run([str(browser), "--headless", "--disable-gpu", "--window-size=1240,1754",
