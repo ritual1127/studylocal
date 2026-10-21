@@ -93,3 +93,48 @@ def test_phase2_office_live(tmp_path):
     office.run_next()
     assert cards.status == "review" and cards.revision == 1 and cards.error is None
     print(f"\n[실측] 반려 → 다시 만들기 {time.perf_counter() - t0:.0f}초, 알림 {len(Quiet.sent)}개")
+
+
+def test_rab_agent_live(tmp_path):
+    """실제 qwen3.5로 rab: 파일 찾아 가져오기 · 폰 메시지 · 오늘 현황 · 팀 지정. 알림은 가짜, 폴더는 임시."""
+    from office.jobs import Office
+    from office.planner import Planner
+    from office.tools import Files
+
+    class Quiet:
+        settings = {"job_done": True, "phone": True, "pc": True}
+
+        def __init__(self):
+            self.to = []
+
+        def send(self, title, body, reminder=False, only=None):
+            self.to.append((only or "both", body))
+            return []
+
+    home = tmp_path / "home"
+    for name in ("Desktop", "Documents", "Downloads"):
+        (home / name).mkdir(parents=True)
+    shutil_src = HANDOUT
+    (home / "Desktop" / "세포_정리_프린트.html").write_text(shutil_src.read_text(encoding="utf-8"), encoding="utf-8")
+    files = Files(roots=[home], folders={n: home / n for n in ("Desktop", "Documents", "Downloads")}, perms={"read": True, "write": True})
+    notifier = Quiet()
+    office = Office(tmp_path / "out", planner=Planner(tmp_path / "planner.json"), notifier=notifier, files=files, opener=lambda t: None)
+    office.planner.add_todo("영어 단어 30개", time="21:00")
+
+    def ask(text):
+        job_id, _ = office.new_job_dir()
+        office.submit(job_id, text, [])
+        t0 = time.perf_counter()
+        office.run_next()
+        job = office.jobs[job_id]
+        print(f"\n[rab 실측] {text} → {job.status} {time.perf_counter() - t0:.0f}초 · 도구 {job.trace} · 답: {job.reply[:80]}")
+        return job
+
+    brought = ask("바탕화면에서 세포 정리 프린트 찾아서 가져와")
+    assert brought.names and brought.names[0].startswith("세포_정리_프린트")
+    ask("내 폰으로 굿나잇이라고 보내")
+    assert any(to == "phone" and "굿나잇" in body for to, body in notifier.to)
+    today = ask("오늘 할 일 뭐야?")
+    assert "영어 단어" in today.reply
+    quiz = ask("@출제위원 바탕화면 세포 정리 프린트로 문제 5개 만들어줘")
+    assert quiz.assignee == "examiner" and "quiz" in quiz.results and quiz.status == "review"
