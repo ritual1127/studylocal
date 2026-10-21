@@ -17,6 +17,9 @@ export function h(tag, props = {}, ...kids) {
   return el;
 }
 
+// 답변 속 **굵게**만 살린다 (나머지 마크다운은 글자 그대로)
+export const rich = (text) => text.split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 ? h("b", {}, part) : part));
+
 // replaceChildren인데 조건부로 빠진 자식(false·null·0)은 건너뛴다
 export const put = (el, ...kids) => el.replaceChildren(...kids.flat().filter(Boolean));
 

@@ -1,3 +1,4 @@
+import io
 import mimetypes
 import os
 import re
@@ -10,13 +11,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Body, FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
 from office import OfficeError, llm
 from office.config import HOST, MAX_UPLOAD, PORT, VERSION, WEB
 from office.jobs import Office
+from office.plan import OUTPUTS
+from office.remote import Remote, start_uvicorn
 
 # Windows 레지스트리가 .js를 text/plain으로 잡으면 모듈 스크립트가 막힌다
 mimetypes.add_type("text/javascript", ".js")
@@ -55,7 +58,34 @@ def _history(office: Office, limit: int = 50) -> list[dict]:
     return sorted(rows, key=lambda r: r["time"], reverse=True)[:limit]
 
 
-def create_app(office: Office) -> FastAPI:
+async def _take_command(office: Office, text: str, ref: str, files: list[UploadFile]):
+    files = [f for f in files if f.filename]
+    if not text.strip() and not files:
+        return _error("명령을 입력해줘.", 400)
+    if ref and office.material_of(ref) is None:
+        return _error("고른 자료를 못 찾았어. 보관함에서 다시 골라줘.", 400)
+    job_id, job_dir = office.new_job_dir()
+    saved, names = [], []
+    for i, upload in enumerate(files):
+        data = await upload.read()
+        if len(data) > MAX_UPLOAD:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            return _error(f"'{Path(upload.filename).name}' 파일이 너무 커. {MAX_UPLOAD // 1_000_000}MB까지만 돼.", 400)
+        suffix = Path(upload.filename).suffix.lower()  # 원래 이름은 경로에 안 씀 (경로 탈출 방지)
+        dest = job_dir / "inputs" / f"{i:02d}{suffix if SAFE_SUFFIX.fullmatch(suffix) else ''}"
+        dest.write_bytes(data)
+        saved.append(dest)
+        names.append(Path(upload.filename.replace('\\', "/")).name[:80])
+    office.submit(job_id, text.strip()[:4000], saved, ref=ref, names=names)
+    return {"job_id": job_id}
+
+
+def create_app(office: Office, remote: Remote | None = None) -> FastAPI:
+    if remote is None:
+        remote = Remote(office.root / "remote.json",
+                        start_server=lambda host: start_uvicorn(lambda: create_remote_app(office, remote), host),
+                        notify=lambda title, body: office.notifier.send(title, body))
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         office.load_history()
@@ -63,6 +93,7 @@ def create_app(office: Office) -> FastAPI:
         llm.mode = office.notifier.settings.get("ai", "fast")
         threading.Thread(target=llm.warm, daemon=True, name="office-warm").start()
         threading.Thread(target=_alarms, args=(office,), daemon=True, name="office-alarms").start()
+        threading.Thread(target=remote.apply, daemon=True, name="office-remote-start").start()  # 켜 둔 폰 연결 되살리기
         yield
 
     app = FastAPI(lifespan=lifespan)
@@ -81,25 +112,7 @@ def create_app(office: Office) -> FastAPI:
     # ---- 업무 지시 ----
     @app.post("/api/command")
     async def command(text: str = Form(""), ref: str = Form(""), files: list[UploadFile] = File(default=[])):
-        files = [f for f in files if f.filename]
-        if not text.strip() and not files:
-            return _error("명령을 입력해줘.", 400)
-        if ref and office.material_of(ref) is None:
-            return _error("고른 자료를 못 찾았어. 보관함에서 다시 골라줘.", 400)
-        job_id, job_dir = office.new_job_dir()
-        saved, names = [], []
-        for i, upload in enumerate(files):
-            data = await upload.read()
-            if len(data) > MAX_UPLOAD:
-                shutil.rmtree(job_dir, ignore_errors=True)
-                return _error(f"'{Path(upload.filename).name}' 파일이 너무 커. {MAX_UPLOAD // 1_000_000}MB까지만 돼.", 400)
-            suffix = Path(upload.filename).suffix.lower()  # 원래 이름은 경로에 안 씀 (경로 탈출 방지)
-            dest = job_dir / "inputs" / f"{i:02d}{suffix if SAFE_SUFFIX.fullmatch(suffix) else ''}"
-            dest.write_bytes(data)
-            saved.append(dest)
-            names.append(Path(upload.filename.replace("\\", "/")).name[:80])
-        office.submit(job_id, text.strip()[:4000], saved, ref=ref, names=names)
-        return {"job_id": job_id}
+        return await _take_command(office, text, ref, files)
 
     @app.get("/api/state")
     def state():
@@ -211,6 +224,27 @@ def create_app(office: Office) -> FastAPI:
                             filename=f"ritual-office-backup-{time.strftime('%Y%m%d-%H%M')}.zip",
                             background=BackgroundTask(os.unlink, archive))
 
+    # ---- 폰 연결 ----
+    @app.get("/api/remote")
+    def remote_status():
+        return remote.status()
+
+    @app.post("/api/remote")
+    def remote_update(body: dict = Body(...)):
+        return remote.update(body)
+
+    @app.get("/api/remote/qr")
+    def remote_qr():
+        link = remote.status()["link"]
+        if not link:
+            return _error("폰 연결을 먼저 켜줘.", 404)
+        import qrcode
+        import qrcode.image.svg
+
+        buf = io.BytesIO()
+        qrcode.make(link, image_factory=qrcode.image.svg.SvgPathImage, box_size=12, border=2).save(buf)
+        return Response(buf.getvalue(), media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
+
     @app.post("/api/shutdown")
     def shutdown():
         threading.Timer(0.5, os._exit, [0]).start()
@@ -218,6 +252,94 @@ def create_app(office: Office) -> FastAPI:
 
     app.mount("/files", StaticFiles(directory=office.root, check_dir=False), name="files")
     app.mount("/", StaticFiles(directory=WEB, html=True, check_dir=False), name="web")
+    return app
+
+
+# ---- 폰 서버 (8766): 토큰 쿠키가 있어야 들어온다. PC 전용 기능(종료·백업·설정·폴더 열기)은 없다 ----
+COOKIE = "ritual_k"
+LOCKED = """<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>공부 사무실</title><body style="background:#14111f;color:#f3eefe;font-family:sans-serif;padding:24px;line-height:1.6">
+<h1 style="font-size:20px">잠겨 있어</h1><p>PC의 공부 사무실 설정 탭에 있는 QR이나 링크로 다시 들어와줘.</p></body></html>"""
+PHONE_JOB = ("id", "no", "text", "title", "status", "reply", "error", "created", "seconds", "names", "revision", "answer",
+             "warnings")
+
+
+def _phone_state(office: Office) -> dict:
+    snap = office.snapshot()
+    jobs = []
+    for j in snap["jobs"]:
+        item = {k: j.get(k) for k in PHONE_JOB}
+        item["results"] = {k: v for k, v in j["results"].items()
+                           if isinstance(v, str) and (v.startswith("/files/jobs/") or k == "deploy_url")}
+        item["outputs"] = [s for s in j["steps"] if s in OUTPUTS]
+        item["last"] = j["approvals"][-1] if j["approvals"] else None
+        jobs.append(item)
+    view = office.planner.view()
+    return {"jobs": jobs, "working": [s["name"] for s in snap["staff"].values() if s["state"] == "working"],
+            "pending": sum(j["status"] == "review" for j in jobs),
+            "planner": {k: view[k] for k in ("today", "weekday", "todos", "today_events", "dday", "focus", "stats")}}
+
+
+def create_remote_app(office: Office, remote: Remote) -> FastAPI:
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.middleware("http")
+    async def need_token(request: Request, call_next):
+        key = request.query_params.get("k")
+        if key is not None:  # 처음엔 링크·QR의 ?k=토큰 → 쿠키로 바꾸고 주소창에서 지운다
+            if not remote.check(key):
+                return HTMLResponse(LOCKED, status_code=401)
+            response = RedirectResponse(request.url.path, status_code=302)
+            response.set_cookie(COOKIE, key, max_age=90 * 86400, httponly=True, samesite="strict",
+                                secure=request.headers.get("x-forwarded-proto") == "https")
+            return response
+        if not remote.check(request.cookies.get(COOKIE)):
+            return HTMLResponse(LOCKED, status_code=401)
+        if request.method != "GET" and request.headers.get("x-ritual") != "1":  # 다른 사이트가 몰래 보내는 요청(CSRF) 차단
+            return _error("폰 화면에서만 보낼 수 있어.", 403)
+        response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.exception_handler(OfficeError)
+    async def office_error(request: Request, exc: OfficeError):
+        return _error(str(exc), 400)
+
+    @app.get("/")
+    def home():
+        return RedirectResponse("/m")
+
+    @app.get("/m")
+    def phone_page():
+        return FileResponse(WEB / "m.html")
+
+    for name in ("m.js", "m.css", "ui.js", "logo-pixel.png", "icon.ico"):
+        app.add_api_route(f"/{name}", lambda name=name: FileResponse(WEB / name), methods=["GET"])
+
+    @app.get("/api/m/state")
+    def phone_state():
+        return {**_phone_state(office), "ollama": llm.is_up()}
+
+    @app.post("/api/m/command")
+    async def phone_command(text: str = Form(""), ref: str = Form(""), files: list[UploadFile] = File(default=[])):
+        return await _take_command(office, text, ref, files)
+
+    @app.post("/api/m/jobs/{job_id}/approve")
+    def phone_approve(job_id: str, body: dict = Body(default={})):
+        office.approve(job_id, str(body.get("comment") or ""))
+        return {"ok": True}
+
+    @app.post("/api/m/jobs/{job_id}/reject")
+    def phone_reject(job_id: str, body: dict = Body(default={})):
+        office.reject(job_id, str(body.get("comment") or ""))
+        return {"ok": True}
+
+    @app.post("/api/m/todos/{todo_id}")
+    def phone_todo(todo_id: str, body: dict = Body(...)):
+        return office.planner.update_todo(todo_id, {"done": body.get("done")})
+
+    app.mount("/fonts", StaticFiles(directory=WEB / "fonts", check_dir=False), name="fonts")
+    app.mount("/files/jobs", StaticFiles(directory=office.jobs_dir, check_dir=False), name="jobs")
     return app
 
 

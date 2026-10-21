@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#14111f">
+  <title>공부 사무실 · 폰</title>
+  <link rel="icon" href="icon.ico">
+  <link rel="stylesheet" href="m.css">
+  <script type="module" src="m.js"></script>
+</head>
+<body>
+  <header class="top">
+    <img class="logo" src="logo-pixel.png" alt="ritual" onerror="this.hidden = true">
+    <b>공부 사무실</b>
+    <span id="status" class="status">연결 중…</span>
+  </header>
+  <p id="working" class="working" hidden></p>
+  <nav class="tabs" role="tablist" aria-label="폰 화면 탭">
+    <button class="tab on" type="button" role="tab" data-tab="jobs" aria-selected="true">작업</button>
+    <button class="tab" type="button" role="tab" data-tab="review" aria-selected="false">결재 <span id="pending" class="badge" hidden></span></button>
+    <button class="tab" type="button" role="tab" data-tab="today" aria-selected="false">오늘</button>
+  </nav>
+  <main>
+    <section id="jobs" class="list"></section>
+    <section id="review" class="list" hidden></section>
+    <section id="today" hidden></section>
+  </main>
+  <form id="bar" class="bar">
+    <p id="err" class="err" role="alert"></p>
+    <div id="chips" class="chips"></div>
+    <textarea id="text" rows="2" aria-label="업무 지시" placeholder="예) 이 사진 PDF로 / 광합성 암기카드 / 내일 3시 학원"></textarea>
+    <div class="bar-row">
+      <label class="btn alt">사진 찍기<input id="camera" type="file" accept="image/*" capture="environment" hidden></label>
+      <label class="btn alt">파일<input id="pick" type="file" multiple hidden></label>
+      <button id="send" class="btn" type="submit">지시</button>
+    </div>
+  </form>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+</body>
+</html>

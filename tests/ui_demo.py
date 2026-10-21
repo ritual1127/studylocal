@@ -140,9 +140,16 @@ def serve(office: Office, port: int) -> threading.Thread:
     """가짜 사무실을 port에서 띄운다 (모델 올리기는 건너뜀)."""
     import uvicorn
 
+    from office.remote import Remote, start_uvicorn
+
     server.LOCAL.update({f"127.0.0.1:{port}", f"localhost:{port}"})
     llm.warm = lambda: None
-    app = server.create_app(office)
+    # 폰 서버는 이 PC 안(127.0.0.1)에서만 연다: 데모가 방화벽 창을 띄우거나 인터넷에 열리지 않게
+    remote = Remote(office.root / "remote.json",
+                    start_server=lambda host: start_uvicorn(lambda: server.create_remote_app(office, remote), "127.0.0.1"),
+                    start_tunnel=lambda on_url: (on_url("https://demo-tunnel.trycloudflare.com"), lambda: None)[1],
+                    notify=lambda title, body: office.notifier.send(title, body), lan=lambda: ["127.0.0.1"])
+    app = server.create_app(office, remote=remote)
     thread = threading.Thread(target=uvicorn.run, args=(app,), kwargs={"host": "127.0.0.1", "port": port, "log_level": "warning"},
                               daemon=True)
     thread.start()

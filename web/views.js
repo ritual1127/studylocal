@@ -1,7 +1,7 @@
 // 탭 화면들: 사무실 · 보관함 · 오늘 · 일정 · 대표실 · 설정
 import { DECOR, SPRITES } from "./sprites.js";
 import {
-  DUTY, NAMES, OUTPUT_NAMES, ROLE_OF, TEAMS, act, ddayText, getJSON, h, keyed, minutesText, put, teamOf, toast,
+  DUTY, NAMES, OUTPUT_NAMES, ROLE_OF, TEAMS, act, ddayText, getJSON, h, keyed, minutesText, put, rich, teamOf, toast,
 } from "./ui.js";
 
 const LIGHT = { idle: "쉬는 중", working: "일하는 중", done: "끝", error: "에러" };
@@ -59,7 +59,7 @@ function stampOf(job) {
 
 function answerBox(job) {
   return h("details", { class: "answer", open: job.answer.length <= 360 },
-    h("summary", {}, "선생님 답변"), h("div", { class: "answer-text" }, job.answer),
+    h("summary", {}, "선생님 답변"), h("div", { class: "answer-text" }, rich(job.answer)),
     isFile(job.results?.answer) && h("a", { href: job.results.answer, target: "_blank", rel: "noopener" }, "파일로 보기"));
 }
 
@@ -494,10 +494,11 @@ function settingsView(ctx) {
   const box = h("div", { class: "settings" });
   const el = h("div", { class: "view" }, box);
   let data = null;
+  let remote = null;
 
   async function load() {
     try {
-      data = await getJSON("/api/settings");
+      [data, remote] = await Promise.all([getJSON("/api/settings"), getJSON("/api/remote")]);
       draw();
     } catch {
       box.replaceChildren(h("p", { class: "err" }, "설정을 못 불러왔어."));
@@ -531,6 +532,40 @@ function settingsView(ctx) {
         server, h("button", { class: "btn alt", type: "submit" }, "서버 저장")));
   }
 
+  async function setRemote(changes, msg) {
+    const res = await act("/api/remote", changes, msg);
+    if (res) remote = res;
+    draw();
+    if (res?.starting) setTimeout(load, 4000); // 터널 주소가 나오면 다시 그린다
+  }
+
+  function remoteBox() {
+    const r = remote;
+    const choice = (value, label, desc) => h("label", { class: "radio" + (r.mode === value ? " on" : "") },
+      h("input", { type: "radio", name: "remote", value, checked: r.mode === value,
+        onchange: () => setRemote({ mode: value }, { off: "폰 연결 껐어", lan: "같은 와이파이에서 폰으로 들어올 수 있어", tunnel: "어디서나 연결 켜는 중… 주소가 나오면 폰으로도 보내줄게" }[value]) }),
+      h("b", {}, label), h("small", { class: "muted" }, desc));
+    const on = armed.has("token");
+    return section("폰으로 일 시키기",
+      h("div", { class: "radios" },
+        choice("off", "끔", "기본. 이 PC에서만 써"),
+        choice("lan", "같은 와이파이", "집 공유기 안에서만. 처음에 Windows 방화벽 창이 뜨면 '허용'"),
+        choice("tunnel", "어디서나", "Cloudflare 임시 터널. 켤 때마다 주소가 바뀌고 폰 알림으로 보내줘")),
+      r.error && h("p", { class: "err" }, r.error),
+      r.starting && h("p", { class: "muted" }, "터널 여는 중… (처음엔 프로그램을 내려받느라 조금 걸려)"),
+      r.link && h("div", { class: "remote-link" },
+        h("img", { class: "qr", src: `/api/remote/qr?t=${Date.now()}`, alt: "폰 카메라로 찍으면 들어가는 QR", width: 180, height: 180 }),
+        h("div", { class: "remote-text" },
+          h("p", {}, "폰 카메라로 QR을 찍거나 링크를 열어. 한 번 들어가면 90일 동안 기억해."),
+          h("p", { class: "code-row" }, h("code", {}, r.link),
+            h("button", { class: "btn alt small", type: "button", onclick: (e) => copy(r.link, e.currentTarget) }, "복사")),
+          h("p", { class: "muted" }, "이 링크가 열쇠야. 남한테 보내지 마. 잃어버렸으면 열쇠를 바꿔."),
+          h("button", {
+            class: on ? "btn armed" : "btn alt", type: "button",
+            onclick: () => arm("token", draw) && setRemote({ new_token: true }, "열쇠를 바꿨어. 옛 링크는 이제 안 열려"),
+          }, on ? "폰에서 다시 QR을 찍어야 해. 한 번 더 누르면 바꿔" : "열쇠 바꾸기"))));
+  }
+
   function draw() {
     if (!data) return;
     const s = data.settings;
@@ -560,6 +595,7 @@ function settingsView(ctx) {
           },
         }, "테스트 알림"))),
       s.phone && phoneBox(s),
+      remote && remoteBox(),
       section("최근 알림", h("ul", { class: "list" }, data.history.length ? data.history.map((n) => h("li", {},
         h("small", { class: "muted" }, n.time), " ", h("b", {}, n.title), " ", n.body,
         n.errors.length ? h("small", { class: "err" }, ` (${n.errors.join(", ")})`) : null)) : [h("li", { class: "empty" }, "아직 보낸 알림이 없어")])),
