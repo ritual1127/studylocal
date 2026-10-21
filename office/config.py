@@ -19,6 +19,8 @@ MAX_IMAGE_SIDE = 1600
 MAX_PAGES = 20
 
 HOST, PORT = "127.0.0.1", 8765
+VERSION = "2.0.0"
+MAX_UPLOAD = 50_000_000  # 파일 하나
 BROWSERS = [Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
             Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")]
 PALETTE = ["#9337FD", "#E036F0", "#FC34CA", "#FD389C", "#FD633E", "#FC7135"]

@@ -77,6 +77,7 @@ class Job:
     revision: int = 0
     finished: str = ""
     seconds: int = 0                                    # 마지막으로 일한 시간
+    names: list[str] = field(default_factory=list)      # 올린 파일의 원래 이름 (보여주기만, 경로엔 안 씀)
 
     @property
     def outputs(self) -> list[str]:
@@ -125,8 +126,9 @@ class Office:
         (self.jobs_dir / job_id / "inputs").mkdir(parents=True)
         return job_id, self.jobs_dir / job_id
 
-    def submit(self, job_id: str, text: str, files: list[Path], ref: str = "") -> None:
-        job = Job(id=job_id, text=text, files=[str(f) for f in files], ref=ref, created=_now())
+    def submit(self, job_id: str, text: str, files: list[Path], ref: str = "", names: list[str] | None = None) -> None:
+        job = Job(id=job_id, text=text, files=[str(f) for f in files], ref=ref, created=_now(),
+                  names=list(names or [Path(f).name for f in files]))
         with self.lock:
             self.jobs[job_id] = job
         self.queue.put(("job", job_id))
