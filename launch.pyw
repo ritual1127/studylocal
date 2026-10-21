@@ -1,4 +1,4 @@
-"""바탕화면 아이콘이 실행하는 파일 (pythonw: 콘솔 창 없음)."""
+"""바탕화면 아이콘이 실행하는 파일 (pythonw: 콘솔 창 없음). --background: 윈도우 시작 때 창 없이 서버만."""
 import subprocess
 import sys
 import threading
@@ -13,6 +13,7 @@ DATA.mkdir(parents=True, exist_ok=True)
 sys.stdout = sys.stderr = open(DATA / "office.log", "a", encoding="utf-8", buffering=1)
 
 URL = f"http://{HOST}:{PORT}/"
+BACKGROUND = "--background" in sys.argv
 
 
 def is_up(url: str) -> bool:
@@ -56,7 +57,8 @@ def open_window() -> None:
 def main() -> None:
     # 첫 화면(정적 파일)으로 확인: /api/state는 Ollama 확인 때문에 1초를 넘길 수 있다
     if is_up(URL):
-        open_window()  # 두 번 눌러도 서버는 하나
+        if not BACKGROUND:
+            open_window()  # 두 번 눌러도 서버는 하나
         return
     ensure_ollama()
 
@@ -66,7 +68,8 @@ def main() -> None:
         else:
             print("사무실 서버가 30초 안에 안 떴어")
 
-    threading.Thread(target=open_when_ready, daemon=True).start()
+    if not BACKGROUND:
+        threading.Thread(target=open_when_ready, daemon=True).start()
     import uvicorn
 
     # 접근 로그는 끔: 화면이 1초마다 상태를 물어서 오류 기록이 묻힌다

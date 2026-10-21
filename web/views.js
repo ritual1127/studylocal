@@ -496,10 +496,11 @@ function settingsView(ctx) {
   const el = h("div", { class: "view" }, box);
   let data = null;
   let remote = null;
+  let boot = null;
 
   async function load() {
     try {
-      [data, remote] = await Promise.all([getJSON("/api/settings"), getJSON("/api/remote")]);
+      [data, remote, boot] = await Promise.all([getJSON("/api/settings"), getJSON("/api/remote"), getJSON("/api/startup")]);
       draw();
     } catch {
       box.replaceChildren(h("p", { class: "err" }, "설정을 못 불러왔어."));
@@ -585,6 +586,11 @@ function settingsView(ctx) {
         toggle("PC 알림 (Windows 알림 센터)", s.pc, (v) => save({ pc: v }, v ? "PC 알림 켰어" : "PC 알림 껐어")),
         toggle("폰 알림 (ntfy 앱)", s.phone, (v) => save({ phone: v }, v ? "폰 알림 켰어. 아래 주제를 ntfy 앱에서 구독해줘" : "폰 알림 껐어")),
         toggle("결과물 다 되면 알려주기 (결재 요청은 늘 보내)", s.job_done, (v) => save({ job_done: v })),
+        boot && toggle("윈도우 켤 때 사무실도 켜기 (창 없이 · 알림·폰 연결을 받으려면 켜 둬)", boot.on, async (v) => {
+          const res = await act("/api/startup", { on: v }, v ? "윈도우 켤 때 자동으로 켜질 거야" : "자동 시작 껐어");
+          if (res) boot = res;
+          draw();
+        }),
         h("label", { class: "row" }, h("span", {}, "아침 브리핑"), briefing,
           h("button", { class: "btn alt small", type: "button", onclick: () => save({ briefing: "" }, "아침 브리핑 껐어") }, "끄기")),
         h("div", { class: "actions" }, h("button", {

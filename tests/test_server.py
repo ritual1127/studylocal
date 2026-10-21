@@ -134,3 +134,12 @@ def test_scheduler_tick_sends_due_alarms(make_office):
     office.planner.due = lambda briefing="": [{"title": "할 일 시간이야", "body": "단어", "reminder": True}]
     tick(office)
     assert office.notifier.sent == ["할 일 시간이야"]
+
+def test_startup_toggle(make_office, monkeypatch):
+    state = {"on": False}
+    monkeypatch.setattr("office.startup.is_enabled", lambda path=None: state["on"])
+    monkeypatch.setattr("office.startup.set_enabled", lambda on, path=None, run=None: state.update(on=on) or on)
+    c = client_for(make_office())
+    assert c.get("/api/startup").json() == {"on": False}
+    assert c.post("/api/startup", json={"on": True}).json() == {"on": True} and state["on"] is True
+    assert c.post("/api/startup", json={"on": "yes"}).status_code == 400

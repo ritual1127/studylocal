@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from office import OfficeError, llm
+from office import OfficeError, llm, startup
 from office.config import HOST, MAX_UPLOAD, PORT, VERSION, WEB
 from office.jobs import Office
 from office.plan import OUTPUTS
@@ -244,6 +244,16 @@ def create_app(office: Office, remote: Remote | None = None) -> FastAPI:
         buf = io.BytesIO()
         qrcode.make(link, image_factory=qrcode.image.svg.SvgPathImage, box_size=12, border=2).save(buf)
         return Response(buf.getvalue(), media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/startup")
+    def startup_status():
+        return {"on": startup.is_enabled()}
+
+    @app.post("/api/startup")
+    def startup_update(body: dict = Body(...)):
+        if not isinstance(body.get("on"), bool):
+            raise OfficeError("켜기/끄기 값이 이상해.")
+        return {"on": startup.set_enabled(body["on"])}
 
     @app.post("/api/shutdown")
     def shutdown():
