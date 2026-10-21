@@ -24,6 +24,7 @@ from office.literature import fetch_literature
 from office.llm import clip
 from office.memory import Memory
 from office.mindmap import make_mindmap_page
+from office import pc
 from office.note import make_pdf
 from office.notify import Notifier
 from office.plan import NEEDS_MATERIAL, OUTPUTS, STEPS, route as plan_route
@@ -151,6 +152,7 @@ class Office:
         self.files = files or files_from(load_permissions(self.root / "permissions.json"), self.root)
         self.stopping: set[str] = set()  # [중단]을 누른, 일하는 중인 작업
         self.memory = Memory(self.root / "memory.json")  # 실장님이 대표님에 대해 기억하는 것
+        self.web, self.screen, self.vision, self.clip, self.press = pc.fetch, pc.grab_screen, pc.look, pc.clipboard, pc.press
         self.jobs: dict[str, Job] = {}
         self.staff = {role: {"name": name, "state": "idle", "say": ""} for role, name in ROLES.items()}
         self.active = "manager"  # 지금 일하는 직원 (에러가 나면 이 직원 책상에 빨간불)

@@ -140,3 +140,41 @@ def test_rab_agent_live(tmp_path):
     assert "영어 단어" in today.reply
     quiz = ask("@출제위원 바탕화면 세포 정리 프린트로 문제 5개 만들어줘")
     assert quiz.assignee == "examiner" and "quiz" in quiz.results and quiz.status == "review"
+
+
+def test_manager_tools_live(tmp_path):
+    """실제 qwen3.5 + 인터넷: 웹 검색·읽기, PC 상태, 기억. (화면·클립보드·볼륨은 대표 PC를 건드리니 가짜)"""
+    from office.jobs import Office
+    from office.planner import Planner
+    from office.tools import Files
+
+    class Quiet:
+        settings = {"job_done": True, "phone": True, "pc": True}
+
+        def send(self, title, body, reminder=False, only=None):
+            return []
+
+    home = tmp_path / "home"
+    (home / "Desktop").mkdir(parents=True)
+    files = Files(roots=[home], folders={"Desktop": home / "Desktop"}, perms={"read": True, "write": True})
+    office = Office(tmp_path / "out", planner=Planner(tmp_path / "planner.json"), notifier=Quiet(), files=files, opener=lambda t: None)
+    office.clip = lambda text=None: ""
+    office.press = lambda key: None
+    office.screen = lambda: b""
+    office.vision = lambda question, image: "화면에 메모장이 열려 있어요."
+
+    def ask(text):
+        job_id, _ = office.new_job_dir()
+        office.submit(job_id, text, [])
+        t0 = time.perf_counter()
+        office.run_next()
+        job = office.jobs[job_id]
+        print(f"\n[실장님 실측] {text} → {time.perf_counter() - t0:.0f}초 · {job.trace} · {job.reply[:90]}")
+        return job
+
+    web = ask("인터넷에서 광합성 찾아서 한 줄로 요약해줘")
+    assert any("웹 검색" in t for t in web.trace) and "광합성" in web.reply
+    assert any("PC 상태" in t for t in ask("지금 디스크 몇 기가 남았어?").trace)
+    ask("나 고2고 이과야, 기억해")
+    assert office.memory.facts()
+    assert "2학년" in ask("나 몇 학년이라고 했지?").reply.replace("고2", "2학년")

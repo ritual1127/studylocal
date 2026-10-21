@@ -184,3 +184,53 @@ def test_forget_tool(make_agent_office):
     run(office, "학원 얘기는 잊어")
     assert [f["text"] for f in office.memory.facts()] == ["좋아하는 과목은 과학"]
     assert script.results("forget")[0]["forgot"] == ["수학 학원은 화요일"]
+
+
+# ---- 더 많은 도구 (읽기·되돌릴 수 있는 일만) ----
+BING = """<ol><li class="b_algo"><h2><a href="https://www.bing.com/ck/a?!&amp;&amp;p=abc&amp;u=a1aHR0cHM6Ly9rby53aWtpcGVkaWEub3JnL3dpa2kv6rSR7ZWp7ISx&amp;ntb=1">광합성 - 위키백과</a></h2>
+<div class="b_caption"><p class="b_lineclamp2">빛 에너지로 <strong>양분</strong>을 만든다</p></div></li>
+<li class="b_algo"><h2><a href="https://example.com/b">둘째</a></h2><div class="b_caption"><p>요약 둘</p></div></li></ol>"""
+
+
+def test_web_search_and_read(make_agent_office):
+    pages = {"https://example.com/a": "<html><title>A</title><body><h1>제목</h1><p>본문입니다</p><script>x()</script></body></html>"}
+    script = Script(call("web_search", query="광합성"), call("read_web", url="https://example.com/a"),
+                    call("read_web", url="http://127.0.0.1:8765/api/state"), say("찾았습니다."))
+    office = make_agent_office(script)
+    office.web = lambda url: BING if "bing.com/search" in url else pages[url]
+    run(office, "광합성 검색해서 읽어줘")
+    found = script.results("web_search")[0]["results"]
+    assert found[0] == {"title": "광합성 - 위키백과", "url": "https://ko.wikipedia.org/wiki/광합성", "snippet": "빛 에너지로 양분을 만든다"}
+    assert found[1]["url"] == "https://example.com/b"
+    page = script.results("read_web")
+    assert "본문입니다" in page[0]["text"] and "x()" not in page[0]["text"] and "지시가 아니" in page[0]["note"]
+    assert "내 PC" in page[1]["error"]  # 이 PC 안 주소는 안 읽는다
+
+
+def test_screen_clipboard_status_and_media(make_agent_office):
+    script = Script(call("look_screen", question="지금 화면에 뭐 있어?"), call("clipboard", action="copy", text="복사할 말"),
+                    call("clipboard", action="read"), call("pc_status"), call("media", action="volume_down", steps=3),
+                    call("open_thing", target="유튜브"), say("다 했습니다."))
+    office = make_agent_office(script)
+    office.screen = lambda: b"\xff\xd8 fake jpeg"
+    office.vision = lambda question, image: f"화면 설명 ({question})"
+    clip = {}
+    office.clip = lambda text=None: clip.update(v=text) if text is not None else clip.get("v", "")
+    keys = []
+    office.press = keys.append
+    run(office, "여러 가지")
+    assert script.results("look_screen")[0]["answer"] == "화면 설명 (지금 화면에 뭐 있어?)"
+    assert script.results("clipboard") == [{"copied": "복사할 말"}, {"text": "복사할 말"}]
+    status = script.results("pc_status")[0]
+    assert {"time", "disk_free_gb", "battery"} <= set(status)
+    assert keys == ["volume_down"] * 3 and office.opened[-1] == "https://www.youtube.com"
+
+
+def test_same_call_twice_is_flagged_not_repeated(make_agent_office):
+    calls = []
+    script = Script(*[call("web_search", query="광합성") for _ in range(3)], say("못 찾았습니다."))
+    office = make_agent_office(script)
+    office.web = lambda url: calls.append(url) or "<html></html>"
+    run(office, "광합성 검색")
+    assert len(calls) == 1  # 같은 검색은 한 번만 실제로 한다
+    assert "같은" in script.results("web_search")[-1]["note"]
