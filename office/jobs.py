@@ -25,6 +25,7 @@ from office.llm import clip
 from office.memory import Memory
 from office.mindmap import make_mindmap_page
 from office import pc
+from office.media import Comfy
 from office.note import make_pdf
 from office.notify import Notifier
 from office.plan import NEEDS_MATERIAL, OUTPUTS, STEPS, route as plan_route
@@ -40,7 +41,8 @@ from office.tutor import answer_question
 ROLES = {"manager": "실장님", "secretary": "비서", "deployer": "배포담당",
          "scanner": "스캐너", "librarian": "사서", "researcher": "조사원", "analyst": "분석가",
          "designer": "디자이너", "examiner": "출제위원", "cards": "암기담당", "mapper": "정리왕",
-         "tutor": "선생님", "translator": "번역가", "coach": "코치"}
+         "tutor": "선생님", "translator": "번역가", "coach": "코치", "painter": "화가", "director": "영상감독"}
+MEDIA = {"image": "painter", "video": "director"}  # 그림·영상: 실장님 도구로 만들고, 반려되면 다시 그린다
 # 결과 단계 → (직원, 시작 말, 끝 말, 결과 이름)
 OUTPUT_STAFF = {"analysis": ("analyst", "자료 분석할게", "분석 보고서 다 썼어!", "analysis"),
                 "pdf": ("designer", "노트 꾸밀게", "PDF 다 꾸몄어!", "pdf"),
@@ -50,9 +52,10 @@ OUTPUT_STAFF = {"analysis": ("analyst", "자료 분석할게", "분석 보고서
                 "translate": ("translator", "번역할게", "번역 끝!", "translation"),
                 "answer": ("tutor", "질문 읽어볼게", "답 적어놨어!", "answer")}
 STEP_ROLE = {"scan": "scanner", "literature": "librarian", "research": "researcher", "schedule": "secretary",
-             "plan": "coach", "focus": "coach", **{step: info[0] for step, info in OUTPUT_STAFF.items()}}
+             "plan": "coach", "focus": "coach", **{step: info[0] for step, info in OUTPUT_STAFF.items()},
+             **MEDIA}
 AUTO_DEFAULT = {"analysis": False, "pdf": False, "quiz": False, "cards": False, "mindmap": False,
-                "translate": False, "answer": True}  # 답변만 실장이 바로 승인, 나머지는 대표 결재
+                "translate": False, "answer": True, "image": False, "video": False}  # 답변만 바로 승인, 나머지는 대표 결재
 MAX_JOBS = 20
 MAX_ANSWER = 6000
 CRASH_MSG = "예상 못 한 오류가 났어. 로그: %LOCALAPPDATA%\\ritual-office\\office.log"
@@ -117,7 +120,7 @@ class Job:
 
     @property
     def outputs(self) -> list[str]:
-        return [s for s in self.steps if s in OUTPUTS]
+        return [s for s in self.steps if s in OUTPUTS or s in MEDIA]
 
 
 def merge(materials: list[Material], title: str) -> Material:
@@ -153,6 +156,7 @@ class Office:
         self.stopping: set[str] = set()  # [중단]을 누른, 일하는 중인 작업
         self.memory = Memory(self.root / "memory.json")  # 실장님이 대표님에 대해 기억하는 것
         self.web, self.screen, self.vision, self.clip, self.press = pc.fetch, pc.grab_screen, pc.look, pc.clipboard, pc.press
+        self.media = Comfy()  # 그림(Krea-2 Turbo)·영상(Wan2.2 5B), install_gen.ps1로 설치
         self.jobs: dict[str, Job] = {}
         self.staff = {role: {"name": name, "state": "idle", "say": ""} for role, name in ROLES.items()}
         self.active = "manager"  # 지금 일하는 직원 (에러가 나면 이 직원 책상에 빨간불)
@@ -656,6 +660,44 @@ class Office:
             job.results.setdefault("files", []).append({"name": copy.name, "url": url})
         return {"brought": copy.name, "url": url, "size": copy.stat().st_size}
 
+    def translate(self, text: str, kind: str) -> str:
+        """그림·영상 AI는 영어를 잘 알아듣는다: 한국어 요청을 자세한 영어 프롬프트로 (실패하면 원문)."""
+        from office.llm import chat
+
+        goal = {"image": "a text-to-image model: keep every subject, action, color and position from the request, "
+                         "then add a fitting medium, style, composition and lighting",
+                "video": "a text-to-video model: keep every subject and action from the request, "
+                         "then describe the motion, camera movement, setting and lighting"}[kind]
+        system = (f"Rewrite the request as ONE English paragraph prompt for {goal}. Do not add new objects or people. "
+                  "No letters or text in the picture unless the request quotes exact words. Output only the prompt.")
+        try:
+            return chat(system, text, temperature=0.3).strip().strip('"')[:800] or text
+        except OfficeError:
+            return text  # 그림 AI(Qwen3-VL)는 한국어도 알아듣는다
+
+    def make_media(self, job: Job, kind: str, prompt: str, feedback: str = "", **opts) -> list[Path]:
+        role = MEDIA[kind]
+        request = f"{prompt}. {feedback}" if feedback else prompt
+        self._set(job, role, "working", "그림 그릴게 (1분쯤)" if kind == "image" else "영상 찍을게 (몇 분 걸려요)")
+        out_dir = self.jobs_dir / job.id / ("images" if kind == "image" else "video")
+        make = self.media.image if kind == "image" else self.media.video
+        try:
+            paths = make(self.translate(request, kind), out_dir, check=lambda: self.checkpoint(job), **opts)
+        except OfficeError as e:
+            self._set(job, role, "error", str(e))
+            raise
+        with self.lock:
+            if kind not in job.steps:
+                job.steps.append(kind)
+            job.options[f"{kind}_prompt"], job.options[f"{kind}_opts"] = prompt, opts
+            if kind == "image":
+                job.results["images"] = [{"name": p.name, "url": self._url(p)} for p in paths]
+            else:
+                job.results["video"] = self._url(paths[0])
+            job.title = job.title or prompt[:30]
+        self._set(job, role, "done", f"그림 {len(paths)}장 다 그렸어!" if kind == "image" else "영상 다 만들었어!")
+        return paths
+
     def recent_dialogue(self, current: Job, n: int = 6) -> list[tuple[str, str]]:
         """이어지는 대화: 지금 작업 앞의 지시·대답 n개 (오래된 것부터)."""
         with self.lock:
@@ -732,6 +774,9 @@ class Office:
     def _make_outputs(self, job: Job, material: Material | None, feedback: str = "", only: list | None = None) -> None:
         job_dir, o = self.jobs_dir / job.id, job.options
         for step in job.outputs if only is None else only:
+            if step in MEDIA:  # 반려된 그림·영상은 같은 요청 + 대표 의견으로 다시
+                self.make_media(job, step, o.get(f"{step}_prompt", job.text), feedback, **o.get(f"{step}_opts", {}))
+                continue
             role, start, end, key = OUTPUT_STAFF[step]
             self._set(job, role, "working", start.format(**o))
             kw = {"say": self._sayer(job, role), "feedback": feedback}

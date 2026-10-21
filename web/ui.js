@@ -108,18 +108,19 @@ export const TEAMS = [
   { id: "ops", name: "경영지원팀", color: "var(--c1)", roles: ["manager", "secretary", "deployer"], extra: "door" },
   { id: "intake", name: "자료조사팀", color: "var(--c3)", roles: ["scanner", "librarian", "researcher", "analyst"] },
   { id: "make", name: "콘텐츠제작팀", color: "var(--c5)", roles: ["designer", "examiner", "cards", "mapper"] },
-  { id: "learn", name: "학습지원팀", color: "var(--sky)", roles: ["tutor", "translator", "coach"], extra: "plant" },
+  { id: "learn", name: "학습지원팀", color: "var(--sky)", roles: ["tutor", "translator", "coach"] },
+  { id: "media", name: "미디어팀", color: "var(--c6)", roles: ["painter", "director"], extra: "plant" },
 ];
 export const NAMES = {
   manager: "실장님", secretary: "비서", deployer: "배포담당", scanner: "스캐너", librarian: "사서",
   researcher: "조사원", analyst: "분석가", designer: "디자이너", examiner: "출제위원", cards: "암기담당",
-  mapper: "정리왕", tutor: "선생님", translator: "번역가", coach: "코치",
+  mapper: "정리왕", tutor: "선생님", translator: "번역가", coach: "코치", painter: "화가", director: "영상감독",
 };
 export const DUTY = {
   manager: "AI 비서 · 무엇이든 시키기", secretary: "일정·할 일·알림", deployer: "문제 웹 배포", scanner: "모든 파일·사진 판독",
   librarian: "문학 원문·해설", researcher: "주제 조사", analyst: "자료 분석 보고서", designer: "PDF 공부 노트",
   examiner: "문제 출제", cards: "암기카드", mapper: "마인드맵", tutor: "질문 답변", translator: "번역",
-  coach: "공부 계획·공부모드",
+  coach: "공부 계획·공부모드", painter: "그림 (Krea-2)", director: "짧은 영상 (Wan2.2)",
 };
 // 4인 1조: 팀장(위 직원) + 하위 직원 3명 [이름, 전문]
 export const SUBS = {
@@ -137,12 +138,14 @@ export const SUBS = {
   tutor: [["가은", "쉽게 설명"], ["로운", "예시 만들기"], ["나연", "질문 받기"]],
   translator: [["에밀리", "영어"], ["유키", "일본어"], ["리우", "중국어"]],
   coach: [["태양", "공부 계획"], ["봄", "집중 타이머"], ["하늘", "응원·기록"]],
+  painter: [["다온", "색칠"], ["이안", "구도 잡기"], ["새봄", "그림체 맞추기"]],
+  director: [["해준", "장면 구성"], ["서하", "움직임 연출"], ["로이", "편집·내보내기"]],
 };
 // 팀이 맡는 단계 (팀 팝업의 최근 작업 찾기)
 export const TEAM_STEP = {
   scanner: ["scan"], librarian: ["literature"], researcher: ["research"], analyst: ["analysis"], designer: ["pdf"],
   examiner: ["quiz"], cards: ["cards"], mapper: ["mindmap"], tutor: ["answer"], translator: ["translate"],
-  secretary: ["schedule"], coach: ["plan", "focus"],
+  secretary: ["schedule"], coach: ["plan", "focus"], painter: ["image"], director: ["video"],
 };
 export const ROLE_OF = Object.fromEntries(Object.entries(NAMES).map(([role, name]) => [name, role]));
 export const teamOf = (role) => TEAMS.find((t) => t.roles.includes(role)) ?? TEAMS[0];
@@ -150,7 +153,7 @@ export const teamOf = (role) => TEAMS.find((t) => t.roles.includes(role)) ?? TEA
 // 결과물 종류 (자동 승인 규칙·버튼 이름)
 export const OUTPUT_NAMES = {
   analysis: "분석 보고서", pdf: "PDF 노트", quiz: "문제", cards: "암기카드", mindmap: "마인드맵",
-  translate: "번역", answer: "답변",
+  translate: "번역", answer: "답변", image: "그림", video: "영상",
 };
 
 export const minutesText = (m) => (m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`);

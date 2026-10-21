@@ -44,6 +44,8 @@ const links = (j) => LINKS.filter(([k]) => j.results[k]).map(([k, label]) =>
 function card(j) {
   const actions = links(j);
   for (const f of j.results.files ?? []) actions.push(h("a", { class: "btn alt", href: f.url, download: f.name }, f.name));
+  for (const img of j.results.images ?? []) actions.push(h("a", { class: "btn", href: img.url, download: img.name }, `그림 ${img.name}`));
+  if (j.results.video) actions.push(h("a", { class: "btn", href: j.results.video, download: "" }, "영상 받기"));
   if (["queued", "running", "revising"].includes(j.status)) {
     actions.push(h("button", { class: "btn no", type: "button", onclick: () => act(`/api/m/jobs/${encodeURIComponent(j.id)}/cancel`, {}, "멈출게요") }, "중단"));
   }

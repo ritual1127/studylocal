@@ -277,3 +277,65 @@ def test_notify_only_when_asked_to_send(make_agent_office):
     office.agent.llm = Script(call("notify", to="phone", message="오늘은 흐림"), say("보냈습니다."))
     run(office, "날씨 폰으로 보내줘")
     assert office.notifier.to == [("phone", "실장님", "오늘은 흐림")]
+
+
+# ---- 그림·영상 (미디어팀) ----
+class FakeMedia:
+    def __init__(self):
+        self.calls = []
+
+    def image(self, prompt, out_dir, check, count=1, shape="square"):
+        self.calls.append(("image", prompt, count, shape))
+        check()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        paths = []
+        for i in range(count):
+            (out_dir / f"rab_image_{i}.png").write_bytes(b"png")
+            paths.append(out_dir / f"rab_image_{i}.png")
+        return paths
+
+    def video(self, prompt, out_dir, check, seconds=3, shape="landscape"):
+        self.calls.append(("video", prompt, seconds, shape))
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "rab_video.mp4").write_bytes(b"mp4")
+        return [out_dir / "rab_video.mp4"]
+
+    def missing(self):
+        return []
+
+
+def test_make_image_and_video_go_to_media_team_and_wait_for_approval(make_agent_office):
+    script = Script(call("make_image", prompt="노을 지는 바다", count=2, shape="landscape"),
+                    call("make_video", prompt="파도치는 바다", seconds=3), say("대표님, 그림과 영상을 만들어 결재 올렸습니다."))
+    office = make_agent_office(script)
+    office.media = FakeMedia()
+    office.translate = lambda text, kind: f"EN {kind}: {text}"
+    job = run(office, "바다 그림 2장이랑 짧은 영상 만들어줘")
+    assert office.media.calls == [("image", "EN image: 노을 지는 바다", 2, "landscape"), ("video", "EN video: 파도치는 바다", 3, "landscape")]
+    assert [i["name"] for i in job.results["images"]] == ["rab_image_0.png", "rab_image_1.png"]
+    assert job.results["video"].endswith("/rab_video.mp4") and job.status == "review"
+    assert {"image", "video"} <= set(job.outputs) and office.staff["painter"]["state"] == "done"
+
+
+def test_rejected_image_is_redrawn_with_feedback(make_agent_office):
+    office = make_agent_office(Script(call("make_image", prompt="고양이"), say("올렸습니다.")))
+    office.media = FakeMedia()
+    office.translate = lambda text, kind: text
+    job = run(office, "고양이 그려줘")
+    office.reject(job.id, "더 귀엽게")
+    office.run_next()
+    assert office.media.calls[-1][1] == "고양이. 더 귀엽게" and job.status == "review" and job.revision == 1
+
+
+def test_media_failure_marks_painter_and_reports(make_agent_office):
+    from office import OfficeError
+
+    class Broken(FakeMedia):
+        def image(self, *a, **k):
+            raise OfficeError("이미지·동영상 AI가 아직 설치되지 않았어요 (ComfyUI). install_gen.ps1을 실행해 주세요.")
+    script = Script(call("make_image", prompt="고양이"), say("아직 설치가 안 됐습니다."))
+    office = make_agent_office(script)
+    office.media, office.translate = Broken(), (lambda text, kind: text)
+    run(office, "고양이 그려줘")
+    assert "install_gen" in script.results("make_image")[0]["error"]
+    assert office.staff["painter"]["state"] == "error"  # '그리는 중'에 멈춰 있지 않는다

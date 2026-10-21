@@ -35,7 +35,7 @@ def test_scan_to_pdf_job_waits_for_approval(make_office):
     assert (job_dir / "job.json").exists() and job["seconds"] >= 0
     assert snap["staff"]["designer"]["state"] == "done" and snap["staff"]["manager"]["name"] == "실장님"
     assert any(line.startswith("[스캐너]") for line in job["log"])
-    assert len(snap["staff"]) == 14
+    assert len(snap["staff"]) == 16
 
 def test_missing_material_asks_back(make_office):
     office = make_office()
@@ -339,7 +339,7 @@ def test_reset_queue_vault_and_staff(make_office):
     assert office.reset("vault") == 2  # 완료(gone) + 취소(q). ★와 결재 대기는 남는다
     assert set(office.jobs) == {keep_review.id, starred.id} and not (office.jobs_dir / gone.id).exists()
     office.staff["designer"] = {"name": "디자이너", "state": "error", "say": "x"}
-    assert office.reset("staff") == 14 and office.staff["designer"]["state"] == "idle"
+    assert office.reset("staff") == 16 and office.staff["designer"]["state"] == "idle"
     with pytest.raises(OfficeError):
         office.reset("everything")
 

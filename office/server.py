@@ -195,6 +195,10 @@ def create_app(office: Office, remote: Remote | None = None) -> FastAPI:
             return {"count": len(active)}
         return {"count": office.reset(what)}
 
+    @app.get("/api/media")
+    def media_status():
+        return {"missing": office.media.missing(), "running": office.media.up()}
+
     @app.get("/api/memory")
     def memory():
         return {"facts": office.memory.facts()}
@@ -334,6 +338,7 @@ def create_app(office: Office, remote: Remote | None = None) -> FastAPI:
     @app.post("/api/shutdown")
     def shutdown():
         remote.close()  # 터널 프로그램(cloudflared)이 혼자 남지 않게
+        office.media.close()  # 그림·영상 AI(ComfyUI)도
         threading.Timer(0.5, os._exit, [0]).start()
         return {"ok": True}
 
@@ -359,6 +364,7 @@ def _phone_state(office: Office) -> dict:
         item["results"] = {k: v for k, v in j["results"].items()
                            if isinstance(v, str) and (v.startswith("/files/jobs/") or k == "deploy_url")}
         item["results"]["files"] = [f for f in j["results"].get("files") or [] if str(f.get("url", "")).startswith("/files/jobs/")]
+        item["results"]["images"] = [i for i in j["results"].get("images") or [] if str(i.get("url", "")).startswith("/files/jobs/")]
         item["outputs"] = [s for s in j["steps"] if s in OUTPUTS]
         item["last"] = j["approvals"][-1] if j["approvals"] else None
         jobs.append(item)

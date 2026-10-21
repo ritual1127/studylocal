@@ -22,7 +22,7 @@ def test_state_lists_staff_and_jobs(make_office):
     client = TestClient(create_app(make_office()), base_url=BASE)
     client.post("/api/command", data={"text": "운수 좋은 날 문제"})
     s = client.get("/api/state").json()
-    assert len(s["staff"]) == 14 and {"manager", "analyst", "translator", "coach"} <= set(s["staff"])
+    assert len(s["staff"]) == 16 and {"manager", "analyst", "translator", "coach"} <= set(s["staff"])
     assert s["jobs"][0]["status"] == "queued" and isinstance(s["ollama"], bool) and s["model"]
 
 def test_deploy_unknown_job_is_400(make_office):
@@ -178,7 +178,7 @@ def test_reset_endpoint(make_office):
     office.planner.add_todo("남은 일")
     assert c.post("/api/reset", json={"what": "todos"}).json() == {"count": 1}
     assert [t["text"] for t in office.planner.data["todos"]] == ["남은 일"]
-    assert c.post("/api/reset", json={"what": "staff"}).json() == {"count": 14}
+    assert c.post("/api/reset", json={"what": "staff"}).json() == {"count": 16}
     assert c.post("/api/reset", json={"what": "nope"}).status_code == 400
 
 def test_rab_permissions_endpoint(make_office, tmp_path, monkeypatch):
@@ -203,3 +203,25 @@ def test_memory_endpoints(make_office):
     assert c.get("/api/memory").json()["facts"][0]["text"] == "대표님은 아침형"
     assert c.post(f"/api/memory/{fact['id']}/delete").json() == {"ok": True} and c.get("/api/memory").json()["facts"] == []
     assert c.post("/api/memory", json={"text": " "}).status_code == 400
+
+
+def test_media_status_and_shutdown_closes_comfy(make_office, monkeypatch):
+    office = make_office()
+
+    class Media:
+        closed = False
+
+        def missing(self):
+            return ["동영상 모델(Wan2.2 5B)"]
+
+        def up(self):
+            return False
+
+        def close(self):
+            self.closed = True
+    office.media = Media()
+    c = client_for(office)
+    assert c.get("/api/media").json() == {"missing": ["동영상 모델(Wan2.2 5B)"], "running": False}
+    monkeypatch.setattr("office.server.threading.Timer", lambda delay, fn, args: type("T", (), {"start": lambda self: None})())
+    assert c.post("/api/shutdown").json() == {"ok": True}
+    assert office.media.closed  # 퇴근하면 그림·영상 AI(ComfyUI)도 끈다

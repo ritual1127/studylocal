@@ -72,7 +72,7 @@ def test_welcome_shows_once_and_first_layout_is_office_and_vault(page):
     expect(page.locator("#welcome")).to_be_hidden()
     expect(pane(page, 0).locator(".tab.on")).to_have_text("사무실")
     expect(pane(page, 1).locator(".tab.on")).to_have_text("보관함")
-    expect(page.locator(".desk")).to_have_count(16)  # 직원 14 + 대표실 문 + 휴게실
+    expect(page.locator(".desk")).to_have_count(18)  # 직원 16 + 대표실 문 + 휴게실
     page.reload()
     expect(page.locator("#welcome")).to_be_hidden()  # 두 번째부터는 안내 안 띄움
 

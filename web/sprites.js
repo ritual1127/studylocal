@@ -245,6 +245,40 @@ export const SPRITES = {
     "..CCCWCCCCWCCC..",
   ], ["..CC.CCCCCC.SS..", "..SS.CCCCCC....."],
      ["..SS.CCCCCC.CC..", ".....CCCCCC.SS.."]),
+
+  // 화가: 빨간 베레모 + 물감 묻은 하얀 앞치마 + 팔레트
+  painter: sprite({ R: "#d62839", r: "#9c1d2b", H: "#7a4a2a", C: "#f3eefe", p: "#3a86ff", y: "#ffd23f", b: "#2f9e5b", P: "#c99a1a" }, [
+    "................",
+    "....RRRRRRR.....",
+    "...RRRRRRRRRr...",
+    "...HHHHHHHHHH...",
+    "...HSSSSSSSSH...",
+    "...SSESSSSESS...",
+    "...SSSSSSSSSS...",
+    "....SSSMMSSS....",
+    ".....SSSSSS.....",
+    "....CCCCCCCC....",
+    "...CCpCCCCyCC...",
+    "..CCCCCbCCCCCC..",
+  ], ["..CC.CCCCCC.PPP.", "..SS.CCCCCC.PyP."],
+     ["..PPP.CCCCC.CC..", "..PbP.CCCCC.SS.."]),
+
+  // 영상감독: 검은 모자 + 선글라스 + 슬레이트(딱딱이)
+  director: sprite({ A: "#2b2440", a: "#111018", H: "#3a2b4f", G: "#111018", C: "#3b2f5c", W: "#f3eefe", B: "#111018" }, [
+    "................",
+    ".....AAAAAA.....",
+    "....AAAAAAAA....",
+    "..aaAAAAAAAA....",
+    "...HSSSSSSSSH...",
+    "...SGGGSSGGGS...",
+    "...SSSSSSSSSS...",
+    "....SSSMMSSS....",
+    ".....SSSSSS.....",
+    "....CCCCCCCC....",
+    "...CCCCWWCCCC...",
+    "..CCCCCWWCCCCC..",
+  ], ["..CC.CCCCCC.BWB.", "..SS.CCCCCC.WBW."],
+     ["..BWB.CCCCC.CC..", "..WBW.CCCCC.SS.."]),
 };
 
 // 꾸밈: 대표실 문, 화분 (한 프레임)

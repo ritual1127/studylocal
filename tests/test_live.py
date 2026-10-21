@@ -178,3 +178,64 @@ def test_manager_tools_live(tmp_path):
     ask("나 고2고 이과야, 기억해")
     assert office.memory.facts()
     assert "2학년" in ask("나 몇 학년이라고 했지?").reply.replace("고2", "2학년")
+
+
+def _media_ready():
+    from office.media import Comfy
+
+    missing = Comfy().missing()
+    if missing:
+        pytest.skip(f"이미지·동영상 AI 설치 전: {missing}")
+
+
+def test_media_image_live(tmp_path):
+    """진짜 ComfyUI + Krea-2 Turbo로 그림 2장 (1024x1024)."""
+    from PIL import Image
+    from office.media import Comfy
+
+    _media_ready()
+    comfy = Comfy()
+    t0 = time.perf_counter()
+    paths = comfy.image("A cozy study desk by a window at golden hour, open notebook, warm light, film photo", tmp_path,
+                        check=lambda: None, count=2)
+    seconds = time.perf_counter() - t0
+    assert len(paths) == 2 and all(Image.open(p).size == (1024, 1024) for p in paths)
+    print(f"\n[실측] 그림 2장 {seconds:.0f}초 → {paths}")
+
+
+def test_media_video_live(tmp_path):
+    """진짜 ComfyUI + Wan2.2 5B로 2초 영상 (832x480, 24fps)."""
+    from office.media import Comfy
+
+    _media_ready()
+    t0 = time.perf_counter()
+    paths = Comfy().video("Ocean waves rolling onto a sandy beach at sunset, slow camera pan to the right", tmp_path,
+                          check=lambda: None, seconds=2)
+    seconds = time.perf_counter() - t0
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=width,height,nb_frames", "-of", "json", str(paths[0])],
+                           capture_output=True, text=True, timeout=60)
+    stream = json.loads(probe.stdout)["streams"][0]
+    assert (stream["width"], stream["height"]) == (832, 480) and int(stream["nb_frames"]) >= 45
+    print(f"\n[실측] 영상 2초 {seconds:.0f}초 → {paths[0]}")
+
+
+def test_manager_draws_live(tmp_path):
+    """실장님에게 한국어로 그림을 시키면 화가 팀이 그려 결재에 올린다."""
+    from office.jobs import Office
+    from office.planner import Planner
+
+    _media_ready()
+
+    class Quiet:
+        settings = {"job_done": False, "phone": False, "pc": False}
+
+        def send(self, *a, **k):
+            return []
+    office = Office(tmp_path / "out", planner=Planner(tmp_path / "planner.json"), notifier=Quiet(), opener=lambda t: None)
+    job_id, _ = office.new_job_dir()
+    office.submit(job_id, "책상 위에 귀여운 고양이가 공부하는 그림 그려줘", [])
+    t0 = time.perf_counter()
+    office.run_next()
+    job = office.jobs[job_id]
+    print(f"\n[실장님 실측] 그림 → {job.status} {time.perf_counter() - t0:.0f}초 · 도구 {job.trace} · 답: {job.reply[:80]}")
+    assert job.status == "review" and job.results.get("images")

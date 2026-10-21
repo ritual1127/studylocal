@@ -50,6 +50,17 @@ function resultLinks(job) {
     h("a", { class: key === "text" || key === "csv" ? "btn alt" : "btn", href: r[key], target: "_blank", rel: "noopener" }, label));
 }
 
+// 그림·영상은 보고 결재하도록 카드에 바로 보여준다
+function mediaOf(job) {
+  const r = job.results ?? {};
+  const images = (r.images ?? []).filter((img) => isFile(img.url));
+  return [
+    images.length && h("div", { class: "thumbs" }, images.map((img) => h("a", { href: img.url, target: "_blank", rel: "noopener" },
+      h("img", { src: img.url, alt: `그림 ${img.name}`, loading: "lazy" })))),
+    isFile(r.video) && h("video", { class: "clip", src: r.video, controls: true, preload: "metadata" }),
+  ];
+}
+
 function stampOf(job) {
   const last = job.approvals?.at(-1);
   if (job.status === "done" && last?.action === "approve") return h("span", { class: "stamp ok", title: `${last.time} 대표 승인` }, "승인");
@@ -145,6 +156,7 @@ function jobCard(job, ctx) {
     job.warnings?.length && h("ul", { class: "warn" }, job.warnings.map((w) => h("li", {}, w))),
     job.error && h("p", { class: "err" }, job.error),
     job.answer && answerBox(job),
+    ...mediaOf(job),
     h("div", { class: "actions" }, actions),
     url && h("p", { class: "deployed" }, h("a", { href: url, target: "_blank", rel: "noopener" }, url),
       h("button", { class: "btn alt", type: "button", onclick: (e) => copy(url, e.currentTarget) }, "복사")),
@@ -573,6 +585,7 @@ function ceoView(ctx) {
       job.error && h("p", { class: "err" }, job.error),
       lastReject && h("p", { class: "muted" }, `지난 반려 의견: ${lastReject.comment}`),
       job.answer && answerBox(job),
+      ...mediaOf(job),
       h("div", { class: "actions" }, resultLinks(job)),
       comment,
       h("div", { class: "actions" },
@@ -634,11 +647,12 @@ function settingsView(ctx) {
   let boot = null;
   let perms = null;
   let facts = null;
+  let media = null;
 
   async function load() {
     try {
-      [data, remote, boot, perms, { facts }] = await Promise.all([getJSON("/api/settings"), getJSON("/api/remote"),
-        getJSON("/api/startup"), getJSON("/api/permissions"), getJSON("/api/memory")]);
+      [data, remote, boot, perms, { facts }, media] = await Promise.all([getJSON("/api/settings"), getJSON("/api/remote"),
+        getJSON("/api/startup"), getJSON("/api/permissions"), getJSON("/api/memory"), getJSON("/api/media")]);
       draw();
     } catch {
       box.replaceChildren(h("p", { class: "err" }, "설정을 못 불러왔어."));
@@ -733,6 +747,15 @@ function settingsView(ctx) {
         extra, h("button", { class: "btn alt", type: "submit" }, "폴더 추가")));
   }
 
+  function mediaBox() {
+    return section("이미지·동영상 AI",
+      h("p", {}, "그림: Krea-2 Turbo · 영상: Wan2.2 5B (내 PC의 ComfyUI에서, 인터넷 안 씀). \"바다 그림 그려줘\", \"파도치는 3초 영상 만들어줘\"처럼 시키세요."),
+      media.missing.length
+        ? h("p", { class: "err" }, `아직 설치 안 됨: ${media.missing.join(", ")} → 프로젝트 폴더의 install_gen.ps1을 실행하세요 (약 37GB).`)
+        : h("p", { class: "muted" }, `설치됨 · ${media.running ? "켜져 있음" : "시킬 때 켜져요 (처음 1~2분)"} · 그림 1분쯤, 영상 몇 분`),
+      !media.missing.length && h("a", { class: "btn alt", href: "http://127.0.0.1:8188/", target: "_blank", rel: "noopener" }, "ComfyUI 직접 열기"));
+  }
+
   function memoryBox() {
     const input = h("input", { class: "input grow", maxlength: 300, "aria-label": "실장님이 기억할 것",
       placeholder: "실장님이 기억할 것 (예: 수학 학원은 매주 화요일 6시)" });
@@ -807,6 +830,7 @@ function settingsView(ctx) {
       s.phone && phoneBox(s),
       remote && remoteBox(),
       facts && memoryBox(),
+      media && mediaBox(),
       perms && permsBox(),
       section("최근 알림", h("ul", { class: "list" }, data.history.length ? data.history.map((n) => h("li", {},
         h("small", { class: "muted" }, n.time), " ", h("b", {}, n.title), " ", n.body,

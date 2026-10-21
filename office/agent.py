@@ -27,7 +27,7 @@ NUDGE = ("(되묻지 말고 지금 바로 해 주세요. 애매하면 가장 그
          "지역은 기억이 없으면 서울, 과목·수준은 기억이나 고등학생 기준. 도구로 끝까지 하고, 무엇으로 정했는지 보고할 때 한 줄로 알려 주세요.)")
 MAX_CALLS = 4  # 한 번에 부르는 도구 수
 RESULT_CHARS = 3000
-NAMES = {"manager": "실장님", "secretary": "비서", "deployer": "배포담당", "scanner": "스캐너", "librarian": "사서",
+NAMES = {"painter": "화가", "director": "영상감독", "manager": "실장님", "secretary": "비서", "deployer": "배포담당", "scanner": "스캐너", "librarian": "사서",
          "researcher": "조사원", "analyst": "분석가", "designer": "디자이너", "examiner": "출제위원", "cards": "암기담당",
          "mapper": "정리왕", "tutor": "선생님", "translator": "번역가", "coach": "코치"}
 # 열기로 실행되면 프로그램을 돌리는 것과 같은 파일들 (실장님은 열지 않는다)
@@ -48,6 +48,7 @@ RAB_SYSTEM = """너는 '실장님', 대표(ritual)의 AI 비서다 (이 앱 이�
 - "내 폰으로 ○○ 보내"처럼 보낼 말이 요청에 있으면 묻지 말고 바로 notify로 그 말을 보낸다.
 - notify는 대표님이 "보내·알려 줘"라고 할 때만 쓴다. 그냥 묻는 말엔 대답으로만 답한다.
 - 실제로 쓴 도구로 한 일만 보고한다. 하지 않은 일(팀에 맡김·파일 저장 등)을 했다고 말하지 않는다.
+- 그림은 make_image(화가 팀, Krea-2), 짧은 영상은 make_video(영상감독 팀, Wan2.2, 몇 분 걸림)로 만든다.
 - 공부 계획은 study_plan으로 짠다 (과목을 모르면 다가오는 시험·할 일·기억을 보고 정한다).
 - 파일은 find_files로 찾아 본 뒤 결과의 경로를 그대로 쓴다. 경로를 지어내지 않는다. 폴더 이름은 바탕화면·문서·다운로드처럼 써도 된다.
 - 노트·문제·암기카드·마인드맵·분석·번역·질문 답변 같은 결과물은 do_work로 직원 팀에게 맡긴다 (첨부 파일·가져온 파일은 자동으로 쓴다).
@@ -226,6 +227,28 @@ def study_plan(office, job, args):
         office.planner.add_todo(todo["text"], date=todo["date"])
     office._set(job, "coach", "done", f"할 일 {len(out['todos'])}개로 계획 짰어!")
     return {"added": len(out["todos"]), "first_days": out["todos"][:5], "coach": out.get("reply", "")}
+
+
+@tool("make_image", "그림 그리기", "그림(이미지)을 그린다 (Krea-2, 1~4장, 1분쯤). prompt는 그릴 내용 (한국어 OK)", ("prompt",),
+      prompt=S, count={**I, "description": "장 수 1~4"}, shape={"type": "string", "enum": ["square", "portrait", "landscape"]})
+def make_image(office, job, args):
+    prompt = _s(args, "prompt", 600)
+    if not prompt:
+        raise OfficeError("무엇을 그릴지 알려 주세요.")
+    shape = args.get("shape") if args.get("shape") in ("square", "portrait", "landscape") else "square"
+    paths = office.make_media(job, "image", prompt, count=max(1, min(4, _i(args, "count", 1))), shape=shape)
+    return {"images": [p.name for p in paths], "status": "결재 대기" if not office.auto.get("image") else "완료"}
+
+
+@tool("make_video", "영상 만들기", "짧은 영상을 만든다 (Wan2.2 5B, 1~5초, 몇 분 걸림). prompt는 장면 내용", ("prompt",),
+      prompt=S, seconds={**I, "description": "길이 1~5초"}, shape={"type": "string", "enum": ["landscape", "portrait", "square"]})
+def make_video(office, job, args):
+    prompt = _s(args, "prompt", 600)
+    if not prompt:
+        raise OfficeError("어떤 장면을 만들지 알려 주세요.")
+    shape = args.get("shape") if args.get("shape") in ("landscape", "portrait", "square") else "landscape"
+    paths = office.make_media(job, "video", prompt, seconds=max(1, min(5, _i(args, "seconds", 3))), shape=shape)
+    return {"video": paths[0].name, "status": "결재 대기" if not office.auto.get("video") else "완료"}
 
 
 @tool("notify", "알림", "대표에게 시스템 알림으로 메시지를 보낸다", ("message",),
